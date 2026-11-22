@@ -1,0 +1,198 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global safety net: default-deny everything
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Hardened primitive helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isBoundedStringList(arr, maxLen) {
+      return arr is list && arr.size() <= maxLen && (arr.size() == 0 || arr[0] is string);
+    }
+
+    // Validation blueprint: UserProfile
+    function isValidUserProfile(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.userId == request.auth.uid &&
+             data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 80 &&
+             data.preferredModelId is string && data.preferredModelId.size() >= 1 && data.preferredModelId.size() <= 120 &&
+             data.swarmEnabled is bool &&
+             data.maxPowerEnabled is bool &&
+             data.autoSearchEnabled is bool &&
+             data.totalSwarmRuns is int && data.totalSwarmRuns >= 0 && data.totalSwarmRuns <= 1000000 &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    // Validation blueprint: AssistantTask
+    function isValidAssistantTask(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.userId == request.auth.uid &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 160 &&
+             data.prompt is string && data.prompt.size() >= 1 && data.prompt.size() <= 4000 &&
+             data.category is string && data.category in ['GENERAL', 'RESEARCH', 'CODE', 'WRITING', 'PLANNING', 'SCREEN', 'AUTOMATION'] &&
+             data.priority is string && data.priority in ['LOW', 'NORMAL', 'HIGH', 'URGENT'] &&
+             data.status is string && data.status in ['QUEUED', 'RUNNING', 'COMPLETED', 'FAILED'] &&
+             data.scheduleMode is string && data.scheduleMode in ['ONCE', 'HOURLY', 'DAILY', 'CONTINUOUS_24H'] &&
+             isBoundedStringList(data.assignedModels, 6) &&
+             (!('resultText' in data) || data.resultText == null || (data.resultText is string && data.resultText.size() <= 24000)) &&
+             isBoundedStringList(data.executionSteps, 12) &&
+             data.progressPercent is int && data.progressPercent >= 0 && data.progressPercent <= 100 &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    // Validation blueprint: ChatMessage
+    function isValidChatMessage(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.userId == request.auth.uid &&
+             data.role is string && data.role in ['USER', 'ASSISTANT'] &&
+             data.content is string && data.content.size() >= 1 && data.content.size() <= 24000 &&
+             data.modelUsed is string && data.modelUsed.size() >= 1 && data.modelUsed.size() <= 120 &&
+             isBoundedStringList(data.swarmModels, 6) &&
+             isBoundedStringList(data.searchSources, 10) &&
+             data.usedWebSearch is bool &&
+             data.hasScreenContext is bool &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    // User profile document
+    match /users/{userId} {
+      allow get: if isOwner(userId) && isValidId(userId);
+      allow list: if false;
+
+      allow create: if isOwner(userId) &&
+                       isValidId(userId) &&
+                       incoming().keys().hasAll([
+                         'userId', 'displayName', 'preferredModelId',
+                         'swarmEnabled', 'maxPowerEnabled', 'autoSearchEnabled',
+                         'totalSwarmRuns', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'displayName', 'preferredModelId',
+                         'swarmEnabled', 'maxPowerEnabled', 'autoSearchEnabled',
+                         'totalSwarmRuns', 'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidUserProfile(incoming());
+
+      allow update: if isValidUserProfile(incoming()) &&
+                       isOwner(userId) &&
+                       isValidId(userId) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       (
+                         // Action: Update Preferences
+                         incoming().diff(existing()).affectedKeys().hasOnly([
+                           'displayName', 'preferredModelId', 'swarmEnabled',
+                           'maxPowerEnabled', 'autoSearchEnabled', 'updatedAt'
+                         ]) ||
+                         // Action: Increment Swarm Run Telemetry
+                         incoming().diff(existing()).affectedKeys().hasOnly([
+                           'totalSwarmRuns', 'updatedAt'
+                         ])
+                       );
+
+      allow delete: if isOwner(userId) && isValidId(userId);
+
+      // User-scoped 24h tasks subcollection
+      match /tasks/{taskId} {
+        allow get: if isOwner(userId) && isValidId(userId) && isValidId(taskId);
+        allow list: if isOwner(userId) && isValidId(userId);
+
+        allow create: if isOwner(userId) &&
+                         isValidId(userId) &&
+                         isValidId(taskId) &&
+                         incoming().keys().hasAll([
+                           'userId', 'title', 'prompt', 'category', 'priority',
+                           'status', 'scheduleMode', 'assignedModels',
+                           'executionSteps', 'progressPercent', 'createdAt', 'updatedAt'
+                         ]) &&
+                         incoming().keys().hasOnly([
+                           'userId', 'title', 'prompt', 'category', 'priority',
+                           'status', 'scheduleMode', 'assignedModels', 'resultText',
+                           'executionSteps', 'progressPercent', 'createdAt', 'updatedAt'
+                         ]) &&
+                         incoming().status == 'QUEUED' &&
+                         isValidAssistantTask(incoming());
+
+        allow update: if isValidAssistantTask(incoming()) &&
+                         isOwner(userId) &&
+                         isValidId(userId) &&
+                         isValidId(taskId) &&
+                         incoming().userId == existing().userId &&
+                         incoming().createdAt == existing().createdAt &&
+                         existing().status != 'COMPLETED' &&
+                         (
+                           // Action: Edit Task Configuration
+                           incoming().diff(existing()).affectedKeys().hasOnly([
+                             'title', 'prompt', 'category', 'priority',
+                             'scheduleMode', 'assignedModels', 'updatedAt'
+                           ]) ||
+                           // Action: Swarm Execution Progress / Completion
+                           incoming().diff(existing()).affectedKeys().hasOnly([
+                             'status', 'assignedModels', 'resultText',
+                             'executionSteps', 'progressPercent', 'updatedAt'
+                           ]) ||
+                           // Action: Retry Failed Task
+                           (
+                             existing().status == 'FAILED' &&
+                             incoming().status == 'QUEUED' &&
+                             incoming().diff(existing()).affectedKeys().hasOnly([
+                               'status', 'resultText', 'executionSteps', 'progressPercent', 'updatedAt'
+                             ])
+                           )
+                         );
+
+        allow delete: if isOwner(userId) && isValidId(userId) && isValidId(taskId);
+      }
+
+      // User-scoped chat messages subcollection (append-only, deletable by owner)
+      match /messages/{messageId} {
+        allow get: if isOwner(userId) && isValidId(userId) && isValidId(messageId);
+        allow list: if isOwner(userId) && isValidId(userId);
+
+        allow create: if isOwner(userId) &&
+                         isValidId(userId) &&
+                         isValidId(messageId) &&
+                         incoming().keys().hasAll([
+                           'userId', 'role', 'content', 'modelUsed',
+                           'swarmModels', 'searchSources', 'usedWebSearch',
+                           'hasScreenContext', 'createdAt', 'updatedAt'
+                         ]) &&
+                         incoming().keys().hasOnly([
+                           'userId', 'role', 'content', 'modelUsed',
+                           'swarmModels', 'searchSources', 'usedWebSearch',
+                           'hasScreenContext', 'createdAt', 'updatedAt'
+                         ]) &&
+                         isValidChatMessage(incoming());
+
+        allow update: if false;
+        allow delete: if isOwner(userId) && isValidId(userId) && isValidId(messageId);
+      }
+    }
+  }
+}

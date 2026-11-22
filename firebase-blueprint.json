@@ -1,0 +1,215 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Authenticated user preferences for Aura AI 33-model swarm orchestration.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the owner."
+        },
+        "displayName": {
+          "type": "string",
+          "description": "User display name."
+        },
+        "preferredModelId": {
+          "type": "string",
+          "description": "Selected primary model ID from the 33-model catalog."
+        },
+        "swarmEnabled": {
+          "type": "boolean",
+          "description": "Whether multi-model automatic swarm collaboration is enabled."
+        },
+        "maxPowerEnabled": {
+          "type": "boolean",
+          "description": "Whether Max Power multi-pass deep synthesis is enabled."
+        },
+        "autoSearchEnabled": {
+          "type": "boolean",
+          "description": "Whether Google Search grounding is enabled by default."
+        },
+        "totalSwarmRuns": {
+          "type": "integer",
+          "description": "Cumulative count of completed multi-model swarm executions."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp written via FieldValue.serverTimestamp()."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp written via FieldValue.serverTimestamp()."
+        }
+      },
+      "required": [
+        "userId",
+        "displayName",
+        "preferredModelId",
+        "swarmEnabled",
+        "maxPowerEnabled",
+        "autoSearchEnabled",
+        "totalSwarmRuns",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "AssistantTask": {
+      "title": "AssistantTask",
+      "description": "Autonomous 24h AI task executed by one or more collaborative models.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the task owner."
+        },
+        "title": {
+          "type": "string",
+          "description": "Short task title."
+        },
+        "prompt": {
+          "type": "string",
+          "description": "Detailed task instructions for the AI swarm."
+        },
+        "category": {
+          "type": "string",
+          "enum": ["GENERAL", "RESEARCH", "CODE", "WRITING", "PLANNING", "SCREEN", "AUTOMATION"],
+          "description": "Task domain category."
+        },
+        "priority": {
+          "type": "string",
+          "enum": ["LOW", "NORMAL", "HIGH", "URGENT"],
+          "description": "Execution priority level."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["QUEUED", "RUNNING", "COMPLETED", "FAILED"],
+          "description": "Lifecycle execution status."
+        },
+        "scheduleMode": {
+          "type": "string",
+          "enum": ["ONCE", "HOURLY", "DAILY", "CONTINUOUS_24H"],
+          "description": "24-hour automation schedule cadence."
+        },
+        "assignedModels": {
+          "type": "array",
+          "description": "Bounded list of collaborating model display names."
+        },
+        "resultText": {
+          "type": "string",
+          "description": "Optional AI-generated execution report."
+        },
+        "executionSteps": {
+          "type": "array",
+          "description": "Bounded list of multi-agent step logs."
+        },
+        "progressPercent": {
+          "type": "integer",
+          "description": "Progress percentage from 0 to 100."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp written via FieldValue.serverTimestamp()."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp written via FieldValue.serverTimestamp()."
+        }
+      },
+      "required": [
+        "userId",
+        "title",
+        "prompt",
+        "category",
+        "priority",
+        "status",
+        "scheduleMode",
+        "assignedModels",
+        "executionSteps",
+        "progressPercent",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ChatMessage": {
+      "title": "ChatMessage",
+      "description": "Synced conversation turn with multi-model swarm and Google Search provenance.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the owner."
+        },
+        "role": {
+          "type": "string",
+          "enum": ["USER", "ASSISTANT"],
+          "description": "Message author role."
+        },
+        "content": {
+          "type": "string",
+          "description": "Message text content."
+        },
+        "modelUsed": {
+          "type": "string",
+          "description": "Primary model name or engine label."
+        },
+        "swarmModels": {
+          "type": "array",
+          "description": "Bounded list of models that collaborated on this turn."
+        },
+        "searchSources": {
+          "type": "array",
+          "description": "Bounded list of grounded Google Search source citations."
+        },
+        "usedWebSearch": {
+          "type": "boolean",
+          "description": "Whether Google Search grounding was used."
+        },
+        "hasScreenContext": {
+          "type": "boolean",
+          "description": "Whether a live screen share or screenshot image was analyzed."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp written via FieldValue.serverTimestamp()."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp written via FieldValue.serverTimestamp()."
+        }
+      },
+      "required": [
+        "userId",
+        "role",
+        "content",
+        "modelUsed",
+        "swarmModels",
+        "searchSources",
+        "usedWebSearch",
+        "hasScreenContext",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Per-user assistant preferences and swarm telemetry."
+    },
+    "/users/{userId}/tasks/{taskId}": {
+      "schema": { "$ref": "#/entities/AssistantTask" },
+      "description": "Per-user 24/7 multi-task queue and autonomous execution logs."
+    },
+    "/users/{userId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/ChatMessage" },
+      "description": "Per-user AI chat history with model swarm and web search metadata."
+    }
+  }
+}

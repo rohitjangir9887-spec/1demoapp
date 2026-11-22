@@ -1,0 +1,6 @@
+{
+  "name": "Aura AI",
+  "description": "24/7 autonomous multi-model AI assistant with 33-model NVIDIA NIM & Gemini swarm orchestration, Google Search, multi-task execution, and screen sharing.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
