@@ -2,43 +2,48 @@ name: Build 1demoapp APK
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
+    paths-ignore:
+      - 'BUILD_DIAGNOSTICS.md'
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   android-apk:
     name: Android debug APK
     runs-on: ubuntu-latest
     timeout-minutes: 45
-
     steps:
       - name: Checkout app source
         uses: actions/checkout@v4
 
       - name: Setup JDK 17
+        id: jdk
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
       - name: Setup Android SDK
+        id: android
         uses: android-actions/setup-android@v3
 
       - name: Install Android SDK API 36.1
+        id: sdk
         run: |
           sdkmanager --install "platforms;android-36.1" "build-tools;36.0.0"
           yes | sdkmanager --licenses > /dev/null || true
 
       - name: Setup Gradle 9.3.1
+        id: gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.3.1'
 
       - name: Generate local debug keystore
+        id: keystore
         run: |
           keytool -genkeypair -v \
             -keystore debug.keystore \
@@ -48,13 +53,60 @@ jobs:
             -keyalg RSA -keysize 2048 -validity 10000 \
             -dname "CN=Android Debug,O=Android,C=US"
 
-      - name: Build installable APK
-        run: gradle --no-daemon --stacktrace :app:assembleDebug
+      - name: Build installable APK and save diagnostics
+        id: build
+        run: |
+          set +e
+          gradle --no-daemon --stacktrace :app:assembleDebug > build-output.log 2>&1
+          result=$?
+          tail -n 90 build-output.log
+          exit $result
 
       - name: Upload APK for phone download
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: 1demoapp-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
           if-no-files-found: error
+
+      - name: Save diagnostic summary to repository
+        if: always()
+        env:
+          JDK_OUTCOME: ${{ steps.jdk.outcome }}
+          ANDROID_OUTCOME: ${{ steps.android.outcome }}
+          SDK_OUTCOME: ${{ steps.sdk.outcome }}
+          GRADLE_OUTCOME: ${{ steps.gradle.outcome }}
+          KEYSTORE_OUTCOME: ${{ steps.keystore.outcome }}
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          {
+            echo "# Latest Android build diagnostics"
+            echo
+            echo "Run: $RUN_URL"
+            echo "Source commit: $COMMIT_SHA"
+            echo
+            echo "| Step | Outcome |"
+            echo "| --- | --- |"
+            echo "| Java setup | $JDK_OUTCOME |"
+            echo "| Android setup | $ANDROID_OUTCOME |"
+            echo "| Android SDK packages | $SDK_OUTCOME |"
+            echo "| Gradle setup | $GRADLE_OUTCOME |"
+            echo "| Debug keystore | $KEYSTORE_OUTCOME |"
+            echo "| Android compile | $BUILD_OUTCOME |"
+            if [ -f build-output.log ] && [ "$BUILD_OUTCOME" != "success" ]; then
+              echo
+              echo "## Last Gradle log lines (review before sharing outside private repo)"
+              echo '~~~'
+              tail -n 100 build-output.log | sed -E 's/nvapi-[A-Za-z0-9_-]+/[REDACTED_NVIDIA_KEY]/g' | cut -c 1-220
+              echo '~~~'
+            fi
+          } > BUILD_DIAGNOSTICS.md
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add BUILD_DIAGNOSTICS.md
+          git diff --staged --quiet || git commit -m "ci: record Android build diagnostic [skip ci]"
+          git push origin HEAD:main || echo "Diagnostic push blocked; inspect Actions logs"
