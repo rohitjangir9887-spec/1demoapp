@@ -69,6 +69,7 @@ import androidx.credentials.CredentialManager
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.auth.signOutUser
+import com.example.data.remote.NvidiaNimClient
 import com.example.data.model.TaskStatus
 import com.example.firebase.configureAppCheck
 import com.example.ui.components.AmbientAuraBackground
@@ -110,6 +111,9 @@ enum class AuraTab(
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Load the user's locally encrypted NVIDIA key before constructing any AI ViewModels.
+        NvidiaNimClient.initialize(applicationContext)
 
         // STEP 1 (MANDATORY): Configure Firebase App Check with launch intent before UI/ViewModels
         configureAppCheck(this, intent)
