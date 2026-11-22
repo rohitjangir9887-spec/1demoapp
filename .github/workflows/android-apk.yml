@@ -102,9 +102,14 @@ jobs:
             echo "| Android compile | $BUILD_OUTCOME |"
             if [ -f build-output.log ] && [ "$BUILD_OUTCOME" != "success" ]; then
               echo
-              echo "## Last Gradle log lines (review before sharing outside private repo)"
+              echo "## Compiler and build errors"
               echo '~~~'
-              tail -n 100 build-output.log | sed -E 's/nvapi-[A-Za-z0-9_-]+/[REDACTED_NVIDIA_KEY]/g' | cut -c 1-220
+              (grep -Ei '(^e: |error: |unresolved reference|caused by:|FAILURE:|\* What went wrong:|failed to)' build-output.log | head -n 35 || true) | sed -E 's/nvapi-[A-Za-z0-9_-]+/[REDACTED_NVIDIA_KEY]/g' | cut -c 1-220
+              echo '~~~'
+              echo
+              echo "## Tail of build log"
+              echo '~~~'
+              tail -n 30 build-output.log | sed -E 's/nvapi-[A-Za-z0-9_-]+/[REDACTED_NVIDIA_KEY]/g' | cut -c 1-220
               echo '~~~'
             fi
           } > BUILD_DIAGNOSTICS.md
