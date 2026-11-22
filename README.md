@@ -1,21 +1,34 @@
-# 1demoapp — NVIDIA NIM Android chat app
+# Aura AI / OmniTask AI — Android app
 
-A lightweight native Android chat app with NVIDIA NIM support, voice input and spoken responses. API keys are entered inside the app and stored encrypted using Android Keystore; no secret is embedded in the repository or APK.
+This is the existing native Android (Kotlin + Jetpack Compose) project with Chat, Tasks, Models, and Screen Share screens.
 
-## Download APK
+## Download your APK to Android
 
-Open [GitHub Actions](../../actions/workflows/android-apk.yml), select a successful **Build Android APK** run, and download its `1demoapp-debug-apk` artifact ZIP. Extract `app-debug.apk` on your phone and install it.
+1. Open **[Build 1demoapp APK](../../actions/workflows/android-apk.yml)** in the GitHub Actions tab.
+2. Select the latest **successful** run (green checkmark). If no run is present, choose **Run workflow** on the `main` branch.
+3. Scroll to **Artifacts**, then tap **1demoapp-debug-apk**.
+4. Extract the downloaded ZIP and open `app-debug.apk` to install it on your phone.
 
-## Connect NVIDIA NIM
+**Note:** This is a debug APK for testing, not a Play Store release. Each GitHub Actions build generates its own debug signing key; to install future APKs over an older one you may need to uninstall the older debug build first.
 
-In the installed app tap **API / Settings** and paste your NVIDIA NIM key from https://build.nvidia.com/ . Use the model ID from your NVIDIA account. The app makes HTTPS calls to `https://integrate.api.nvidia.com/v1/chat/completions`.
+## NVIDIA NIM API — where to enter it
 
-## What works
+Open the installed Android app, sign in if required by your Firebase setup, then open **33 Models → NVIDIA NIM • API Settings**.
 
-Native Android chat, message history within the current session, configurable model, encrypted-on-device key, speech-to-text using installed Android speech service, text-to-speech, and APK build using GitHub Actions.
+Paste your key from https://build.nvidia.com/ and tap **Save key**. The key is stored encrypted *on that device* using Android Keystore. It is **not** sent to GitHub and it is not embedded into the downloadable APK. Use **Remove** to erase the saved key.
 
-**Limitations:** This is a first working app build, not a device-controlling autonomous agent, and it has no screen-sharing/floating overlay or cloud computer yet. NVIDIA API access depends on NVIDIA account quotas and enabled models. Do not put API keys in source files, GitHub commits or APK build variables.
+The original Gradle secrets plugin still has the placeholder `NVIDIA_API_KEY` in `.env.example` for project compatibility, but the updated NVIDIA client deliberately uses the key set inside the app, not a key compiled into the APK. **Do not commit real API keys** or put them in repository settings hoping to configure the installed app.
 
-## Build
+## Build details
 
-Uses Gradle 8.9, Android Gradle Plugin 8.7.3, JDK 17. The workflow builds a debug APK (signed using the Android debug key) automatically after every push to `main`, or manually using the Actions tab.
+- Existing application ID: `com.aistudio.auraai.k9x4mp`
+- Existing code and layout are preserved
+- Gradle 9.3.1, Android Gradle Plugin 9.1.1, JDK 17, Android SDK 36.1
+- GitHub Actions automatically runs on pushes to `main` and supports manual runs
+- Build artifact: `1demoapp-debug-apk`
+
+## Important limitations
+
+The app uses Firebase services for login, chat/task storage, and some Gemini-based features; deploying those features requires a valid Firebase project and configuration. NVIDIA NIM does not automatically provide a cloud computer or permission to control all Android apps. Screen capture features require Android user consent. NIM model availability and usage quotas depend on your NVIDIA account.
+
+If the build fails, open the failed workflow run to read the first Gradle error. Do not assume the APK was produced until the workflow succeeds.
