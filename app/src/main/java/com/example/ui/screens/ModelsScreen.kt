@@ -29,6 +29,8 @@ import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Button
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -48,12 +50,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.R
+import com.example.data.remote.NvidiaNimClient
 import com.example.data.model.AiModelSpec
 import com.example.data.model.AiModelsCatalog
 import com.example.data.model.ModelProvider
@@ -83,6 +88,10 @@ fun ModelsScreen(
 ) {
     var selectedSpecialty by remember { mutableStateOf<ModelSpecialty?>(null) }
     var searchQuery by remember { mutableStateOf("") }
+    val context = LocalContext.current
+    var nimApiKey by remember { mutableStateOf("") }
+    var nimConfigured by remember { mutableStateOf(NvidiaNimClient.isConfigured()) }
+    var nimFeedback by remember { mutableStateOf("") }
 
     val filteredModels = remember(selectedSpecialty, searchQuery) {
         AiModelsCatalog.allModels.filter { spec ->
@@ -174,10 +183,10 @@ fun ModelsScreen(
                             )
                             Spacer(Modifier.height(4.dp))
                             Text(
-                                text = if (isNvidiaNimConfigured) {
+                                text = if (nimConfigured || isNvidiaNimConfigured) {
                                     "Direct NVIDIA NIM Free Endpoints LIVE + Firebase AI Logic Gemini Search & Vision."
                                 } else {
-                                    "Live Firebase AI Logic Swarm active. Add NVIDIA_API_KEY in AI Studio Secrets for direct NIM endpoints."
+                                    "Add your NVIDIA NIM key below for direct API access. The key stays encrypted on this device."
                                 },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = SlateMist
@@ -211,6 +220,82 @@ fun ModelsScreen(
                                         .testTag("models_max_power_toggle")
                                 )
                             }
+                        }
+                    }
+                }
+            }
+
+            // Local API configuration (the real key is never saved to GitHub or embedded in the APK).
+            item(key = "nvidia_nim_settings") {
+                Surface(
+                    shape = RoundedCornerShape(22.dp),
+                    color = ObsidianSurfaceElevated,
+                    border = BorderStroke(1.dp, AuraNimGreen.copy(alpha = 0.4f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            text = "NVIDIA NIM • API Settings",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = PearlWhite,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = if (nimConfigured) "Connected key saved on this device ✓"
+                                   else "Paste your nvapi- key to enable NVIDIA models.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (nimConfigured) AuraNimGreen else SlateMist
+                        )
+                        OutlinedTextField(
+                            value = nimApiKey,
+                            onValueChange = { nimApiKey = it },
+                            label = { Text("NVIDIA API Key") },
+                            placeholder = { Text("nvapi-...") },
+                            visualTransformation = PasswordVisualTransformation(),
+                            singleLine = true,
+                            shape = RoundedCornerShape(14.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = AuraNimGreen,
+                                unfocusedBorderColor = ObsidianCardBorder,
+                                focusedTextColor = PearlWhite,
+                                unfocusedTextColor = PearlWhite
+                            ),
+                            modifier = Modifier.fillMaxWidth().testTag("nvidia_nim_api_key_input")
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(
+                                enabled = nimApiKey.isNotBlank(),
+                                onClick = {
+                                    try {
+                                        NvidiaNimClient.saveKey(context, nimApiKey)
+                                        nimConfigured = NvidiaNimClient.isConfigured()
+                                        nimApiKey = ""
+                                        nimFeedback = "API key saved securely. Select an NVIDIA model to use it."
+                                    } catch (e: Exception) {
+                                        nimFeedback = "Could not save API key: ${e.localizedMessage ?: "unknown error"}"
+                                    }
+                                }
+                            ) {
+                                Text("Save key")
+                            }
+                            TextButton(onClick = {
+                                try {
+                                    NvidiaNimClient.saveKey(context, "")
+                                    nimConfigured = false
+                                    nimApiKey = ""
+                                    nimFeedback = "API key deleted from this device"
+                                } catch (e: Exception) {
+                                    nimFeedback = e.localizedMessage ?: "Could not remove key"
+                                }
+                            }) {
+                                Text("Remove", color = SlateMist)
+                            }
+                        }
+                        if (nimFeedback.isNotBlank()) {
+                            Text(nimFeedback, style = MaterialTheme.typography.bodySmall, color = SlateMist)
                         }
                     }
                 }
