@@ -1,6 +1,14 @@
 package com.example.data.remote
 
-import com.example.BuildConfig
+import android.content.Context
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
+import android.util.Base64
+import java.security.KeyStore
+import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
+import javax.crypto.spec.GCMParameterSpec
 import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 import com.squareup.moshi.Moshi
@@ -57,14 +65,61 @@ interface NvidiaNimService {
 
 object NvidiaNimClient {
     private const val BASE_URL = "https://integrate.api.nvidia.com/"
-    private const val PLACEHOLDER_KEY = "MY_NVIDIA_NIM_API_KEY"
+    private const val PREFS = "nim_private_settings"
+    private const val KEY_ALIAS = "niva_nvidia_key_v1"
+    @Volatile private var runtimeKey = ""
 
-    fun isConfigured(): Boolean {
-        val key = BuildConfig.NVIDIA_API_KEY.trim()
-        return key.isNotEmpty() && key != PLACEHOLDER_KEY
+    /** Load only from this device's encrypted private store, never from the APK. */
+    fun initialize(context: Context) {
+        runtimeKey = try {
+            val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            val iv = prefs.getString("iv", null)
+            val encrypted = prefs.getString("encrypted", null)
+            if (iv.isNullOrEmpty() || encrypted.isNullOrEmpty()) "" else {
+                val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+                val secret = store.getKey(KEY_ALIAS, null) as SecretKey
+                val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+                cipher.init(Cipher.DECRYPT_MODE, secret,
+                    GCMParameterSpec(128, Base64.decode(iv, Base64.NO_WRAP)))
+                String(cipher.doFinal(Base64.decode(encrypted, Base64.NO_WRAP)), Charsets.UTF_8)
+            }
+        } catch (_: Exception) { "" }
     }
 
-    fun authHeader(): String = "Bearer ${BuildConfig.NVIDIA_API_KEY.trim()}"
+    fun saveKey(context: Context, input: String) {
+        val normalized = input.trim().removePrefix("Bearer ").trim()
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (normalized.isEmpty()) {
+            prefs.edit().remove("iv").remove("encrypted").apply()
+            runtimeKey = ""
+            return
+        }
+        val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        if (!store.containsAlias(KEY_ALIAS)) {
+            val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
+            val spec = KeyGenParameterSpec.Builder(
+                KEY_ALIAS, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+            ).setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .setKeySize(256)
+                .build()
+            generator.init(spec)
+            generator.generateKey()
+        }
+        val secret = store.getKey(KEY_ALIAS, null) as SecretKey
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, secret)
+        val encrypted = cipher.doFinal(normalized.toByteArray(Charsets.UTF_8))
+        check(prefs.edit()
+            .putString("iv", Base64.encodeToString(cipher.iv, Base64.NO_WRAP))
+            .putString("encrypted", Base64.encodeToString(encrypted, Base64.NO_WRAP))
+            .commit()) { "Could not save local API key" }
+        runtimeKey = normalized
+    }
+
+    fun isConfigured(): Boolean = runtimeKey.isNotBlank()
+
+    fun authHeader(): String = "Bearer $runtimeKey"
 
     val service: NvidiaNimService by lazy {
         val moshi = Moshi.Builder()
