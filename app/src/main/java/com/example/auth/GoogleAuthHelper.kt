@@ -8,7 +8,6 @@ import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialCancellationException
-import com.example.R
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
@@ -22,6 +21,17 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 
+/**
+ * google-services.json generates default_web_client_id only for configured Firebase projects.
+ * Avoid a hard-coded R.string reference so clean CI builds without Firebase credentials compile.
+ * A missing value fails gracefully, rather than launching Google Identity with a fake client ID.
+ */
+private fun googleWebClientId(context: Context): String? {
+    val id = context.resources.getIdentifier("default_web_client_id", "string", context.packageName)
+    if (id == 0) return null
+    return context.getString(id).trim().takeIf { it.isNotBlank() }
+}
+
 fun attemptAutoSignIn(
     context: Context,
     credentialManager: CredentialManager,
@@ -33,9 +43,7 @@ fun attemptAutoSignIn(
         onAuthSuccess()
         return
     }
-    val clientId = try {
-        context.getString(R.string.default_web_client_id)
-    } catch (_: Exception) {
+    val clientId = googleWebClientId(context) ?: run {
         onUnauthenticated()
         return
     }
@@ -76,10 +84,8 @@ fun onGoogleSignInClicked(
     scope: CoroutineScope,
     onAuthCancelled: () -> Unit = {}
 ) {
-    val clientId = try {
-        context.getString(R.string.default_web_client_id)
-    } catch (_: Exception) {
-        onAuthError("Google Sign-In configuration missing: default_web_client_id not found")
+    val clientId = googleWebClientId(context) ?: run {
+        onAuthError("Google Sign-In is not configured for this APK. Configure Firebase Google Sign-In and a valid web OAuth client ID.")
         return
     }
 
