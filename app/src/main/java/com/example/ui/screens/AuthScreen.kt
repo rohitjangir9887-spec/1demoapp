@@ -42,6 +42,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -82,7 +83,8 @@ import com.example.ui.theme.SlateMist
 
 @Composable
 fun AuthScreen(
-    onAuthSuccess: () -> Unit
+    onAuthSuccess: () -> Unit,
+    onGuestMode: () -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -346,6 +348,10 @@ fun AuthScreen(
                     }
                 }
 
+                Spacer(Modifier.height(8.dp))
+                TextButton(onClick = onGuestMode, modifier = Modifier.fillMaxWidth()) {
+                    Text("Continue with NVIDIA NIM (no sign-in)", color = AuraNimGreen)
+                }
                 Spacer(Modifier.height(12.dp))
                 Text(
                     text = "Syncs your 24h tasks, chats, and 33-model preferences securely across devices.",
