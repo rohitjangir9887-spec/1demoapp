@@ -75,6 +75,7 @@ import com.example.firebase.configureAppCheck
 import com.example.ui.components.AmbientAuraBackground
 import com.example.ui.components.DynamicIslandCapsule
 import com.example.ui.screens.AuthScreen
+import com.example.ui.screens.NvidiaGuestScreen
 import com.example.ui.screens.ChatScreen
 import com.example.ui.screens.ModelsScreen
 import com.example.ui.screens.ScreenHubScreen
@@ -92,6 +93,7 @@ import com.example.ui.theme.SlateMist
 import com.example.ui.viewmodel.AuraViewModel
 import com.example.ui.viewmodel.DataUiState
 import com.google.firebase.Firebase
+import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.auth
 
@@ -133,6 +135,19 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun AppContent() {
+    val context = LocalContext.current
+    var guestMode by rememberSaveable { mutableStateOf(false) }
+    // The repository does not include Firebase project options. Launch NVIDIA-only
+    // chat instead of crashing on Firebase.auth when credentials are unavailable.
+    val firebaseAvailable = remember(context) {
+        runCatching { FirebaseApp.getApps(context).isNotEmpty() }.getOrDefault(false)
+    }
+    if (guestMode || !firebaseAvailable) {
+        NvidiaGuestScreen(
+            onExit = if (firebaseAvailable) ({ guestMode = false }) else null
+        )
+        return
+    }
     var currentUser by remember { mutableStateOf(Firebase.auth.currentUser) }
 
     DisposableEffect(Unit) {
@@ -144,7 +159,7 @@ fun AppContent() {
     }
 
     if (currentUser == null) {
-        AuthScreen(onAuthSuccess = { currentUser = Firebase.auth.currentUser })
+        AuthScreen(onAuthSuccess = { currentUser = Firebase.auth.currentUser }, onGuestMode = { guestMode = true })
     } else {
         val uid = currentUser!!.uid
         val email = currentUser!!.email
