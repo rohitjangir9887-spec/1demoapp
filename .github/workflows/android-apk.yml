@@ -151,17 +151,7 @@ jobs:
         run: |
           if [ -f app/build/outputs/apk/debug/app-debug.apk ]; then
             cp app/build/outputs/apk/debug/app-debug.apk 1demoapp-debug.apk
-            gh release create v1.0.0 1demoapp-debug.apk \
-              --title "Aura AI (Julie) v1.0.0 • Latest APK" \
-              --notes "### 🚀 Aura AI (Julie) v1.0.0 Official Release
-
-✅ **Direct APK Download**: Installable on Android 8.0+ phones.
-✅ **Google Gemini AI & NVIDIA NIM**: 100% Free AI chat integration.
-✅ **Modern Glassmorphic UI & Animations**: Smooth Compose animations & pulsing AI orb.
-✅ **Hindi & English Voice Assistant**: Real-time voice commands & tools.
-
-Download **1demoapp-debug.apk** below to your phone and install!" \
-              --clobber || echo "Release creation skipped or updated"
+            gh release create v1.0.0 1demoapp-debug.apk --title "Aura AI (Julie) v1.0.0 • Latest APK" --notes "Aura AI v1.0.0 APK with Google Gemini Free AI mode, glowing UI animations, and Hindi/English voice assistant. Download 1demoapp-debug.apk below to install." --clobber || echo "Release updated"
           fi
 
       - name: Save diagnostic summary to repository
