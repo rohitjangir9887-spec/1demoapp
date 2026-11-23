@@ -35,6 +35,9 @@ import com.example.data.ai.RoutingConfig
 import com.example.data.ai.RoutingProfile
 import com.example.screen.ScreenCaptureService
 import com.example.screen.ScreenCaptureStore
+import com.example.tools.JulieToolRegistry
+import com.example.tools.JulieToolType
+import com.example.tools.PendingToolAction
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -415,6 +418,9 @@ class JulieFloatingBubbleService : Service() {
 
     private fun askJulieFromBubble(prompt: String) {
         activePromptJob?.cancel()
+        // Only a user-typed, exact command can trigger an Android gesture.
+        // Model-generated responses are never parsed as device commands.
+        if (executeExplicitOverlayCommand(prompt)) return
         panelOutputText?.text = "Julie is thinking..."
         activePromptJob = serviceScope.launch {
             val latestFrame = ScreenCaptureStore.state.value.latestBitmap
@@ -451,10 +457,77 @@ class JulieFloatingBubbleService : Service() {
         }
     }
 
+    /**
+     * Execute explicit, single-step commands typed in the existing floating chat input.
+     * No autonomous action or UI design change: Android Accessibility must be manually enabled,
+     * and JulieAccessibilityService independently checks lockscreen and password safety.
+     */
+    private fun executeExplicitOverlayCommand(prompt: String): Boolean {
+        val command = JulieOverlayCommandRouter.parse(prompt) ?: return false
+        if (command == JulieOverlayCommand.EmergencyStop) {
+            emergencyStopEverything()
+            return true
+        }
+
+        val outcome: Pair<Boolean, String> = when (command) {
+            JulieOverlayCommand.InspectUi -> {
+                val isReady = JulieAccessibilityController.state.value.isConnected
+                isReady to JulieAccessibilityController.inspectVisibleUi()
+            }
+            JulieOverlayCommand.Back -> {
+                val ok = JulieAccessibilityController.pressGlobalBack()
+                ok to if (ok) "Back command sent." else "Back blocked. Enable Julie Accessibility and unlock the phone."
+            }
+            JulieOverlayCommand.ScrollDown, JulieOverlayCommand.ScrollUp -> {
+                val down = command == JulieOverlayCommand.ScrollDown
+                val ok = JulieAccessibilityController.scrollScreen(this, down)
+                ok to if (ok) "Scroll gesture sent." else "Scroll blocked. Check Accessibility permission and lockscreen."
+            }
+            is JulieOverlayCommand.TapAt -> {
+                val display = resources.displayMetrics
+                val insideScreen = command.x >= 0f && command.y >= 0f &&
+                    command.x < display.widthPixels && command.y < display.heightPixels
+                val ok = insideScreen &&
+                    JulieAccessibilityController.tapAt(this, command.x, command.y, "Julie tap")
+                ok to if (ok) "Tap gesture sent at (${command.x.toInt()}, ${command.y.toInt()})."
+                    else "Tap blocked or coordinates outside the display."
+            }
+            is JulieOverlayCommand.ClickLabel -> {
+                val ok = JulieAccessibilityController.findAndClick(this, command.label)
+                ok to if (ok) "Click command sent for '${command.label}'."
+                    else "Could not click '${command.label}'. Check Accessibility permission and screen."
+            }
+            is JulieOverlayCommand.TypeText -> {
+                val ok = JulieAccessibilityController.inputTextIntoFocusedField(command.text)
+                ok to if (ok) "Text entered into the active non-password field."
+                    else "Typing blocked. Focus an editable field and enable Accessibility."
+            }
+            is JulieOverlayCommand.OpenApp -> {
+                val result = JulieToolRegistry.execute(
+                    this,
+                    PendingToolAction(
+                        type = JulieToolType.LAUNCH_APP,
+                        title = "Open ${command.name}",
+                        argument = command.name
+                    )
+                )
+                result.isSuccess to result.getOrElse {
+                    "Could not open ${command.name}: ${it.localizedMessage ?: "Unknown error"}"
+                }
+            }
+            JulieOverlayCommand.EmergencyStop -> false to "Stopped."
+        }
+        panelOutputText?.text = outcome.second
+        panelStatusText?.text = buildLiveStatusLine()
+        return true
+    }
+
     private fun emergencyStopEverything() {
         activePromptJob?.cancel()
         JulieAccessibilityController.emergencyStop()
-        ScreenCaptureService.stop(this)
+        if (ScreenCaptureStore.state.value.isSharingActive) {
+            runCatching { ScreenCaptureService.stop(this) }
+        }
         stopOverlayAndSelf()
     }
 
