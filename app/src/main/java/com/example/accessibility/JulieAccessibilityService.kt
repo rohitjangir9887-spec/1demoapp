@@ -209,6 +209,9 @@ object JulieAccessibilityController {
         context: Context,
         steps: List<WorkflowStep>
     ): WorkflowResult {
+        // Auto-resume from stop when user initiates a new command
+        resumeFromStop()
+
         val service = serviceRef?.get()
         if (service == null) {
             val reason = "Accessibility Service is not enabled. Please enable Julie AI in Android Accessibility Settings."
@@ -226,10 +229,33 @@ object JulieAccessibilityController {
 
             when (step) {
                 is WorkflowStep.LaunchApp -> {
-                    val intent = context.packageManager.getLaunchIntentForPackage(step.appQuery)
-                    if (intent != null) {
-                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        context.startActivity(intent)
+                    var launched = false
+                    val pm = context.packageManager
+                    val directIntent = pm.getLaunchIntentForPackage(step.appQuery)
+                    if (directIntent != null) {
+                        directIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        context.startActivity(directIntent)
+                        launched = true
+                    } else {
+                        // Find by label match
+                        val mainIntent = Intent(Intent.ACTION_MAIN, null).apply { addCategory(Intent.CATEGORY_LAUNCHER) }
+                        val resolveInfos = pm.queryIntentActivities(mainIntent, 0)
+                        for (info in resolveInfos) {
+                            val label = info.loadLabel(pm).toString().lowercase(Locale.ROOT)
+                            val target = step.appQuery.lowercase(Locale.ROOT)
+                            if (label.contains(target) || target.contains(label)) {
+                                val li = pm.getLaunchIntentForPackage(info.activityInfo.packageName)
+                                if (li != null) {
+                                    li.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    context.startActivity(li)
+                                    launched = true
+                                    break
+                                }
+                            }
+                        }
+                    }
+
+                    if (launched) {
                         completed.add("Step ${index + 1}: Launched ${step.appQuery}")
                         appendLog("STEP_OK", "Launched ${step.appQuery}", true)
                         delay(1200L)
@@ -376,7 +402,8 @@ class JulieAccessibilityService : AccessibilityService() {
     }
 
     override fun onInterrupt() {
-        JulieAccessibilityController.emergencyStop()
+        // System stream interrupted temporarily; do not lock Julie with emergency stop
+        JulieAccessibilityController.appendLog("SERVICE_INTERRUPTED", "Accessibility stream paused by system", true)
     }
 
     override fun onDestroy() {
@@ -385,8 +412,13 @@ class JulieAccessibilityService : AccessibilityService() {
     }
 
     private fun isDeviceLocked(): Boolean {
-        val km = getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
-        return km?.isKeyguardLocked == true
+        val km = getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager ?: return false
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
+            km.isDeviceLocked
+        } else {
+            @Suppress("DEPRECATION")
+            km.isKeyguardLocked
+        }
     }
 
     private fun checkSafetyOrLog(actionName: String): Boolean {

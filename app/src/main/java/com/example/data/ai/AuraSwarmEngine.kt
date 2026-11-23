@@ -1187,34 +1187,51 @@ class AuraSwarmEngine(private val appContext: Context) {
             val snippets = mutableListOf<String>()
             val sources = mutableListOf<String>()
 
+            // 1. DuckDuckGo Instant Knowledge API
             runCatching {
                 val req = Request.Builder()
                     .url("https://api.duckduckgo.com/?q=$encoded&format=json&no_html=1&skip_disambig=1")
-                    .addHeader("User-Agent", "JulieAI/2.0 Android")
+                    .addHeader("User-Agent", "Mozilla/5.0 (Android; Mobile; rv:128.0) Gecko/128.0 Firefox/128.0")
                     .get()
                     .build()
                 webClient.newCall(req).execute().use { resp ->
-                    if (!resp.isSuccessful) return@use
-                    val json = JSONObject(resp.body?.string().orEmpty())
-                    val abstractText = json.optString("AbstractText").trim()
-                    val abstractUrl = json.optString("AbstractURL").trim()
-                    val heading = json.optString("Heading").trim()
-                    if (abstractText.isNotBlank()) {
-                        snippets.add("$heading: $abstractText")
-                        if (abstractUrl.isNotBlank()) {
-                            sources.add("${heading.ifBlank { "Web Reference" }}|$abstractUrl")
+                    if (resp.isSuccessful) {
+                        val json = JSONObject(resp.body?.string().orEmpty())
+                        val abstractText = json.optString("AbstractText").trim()
+                        val abstractUrl = json.optString("AbstractURL").trim()
+                        val heading = json.optString("Heading").trim()
+                        if (abstractText.isNotBlank()) {
+                            snippets.add("$heading: $abstractText")
+                            if (abstractUrl.isNotBlank()) {
+                                sources.add("${heading.ifBlank { "Knowledge Source" }}|$abstractUrl")
+                            }
                         }
                     }
-                    val related = json.optJSONArray("RelatedTopics")
-                    if (related != null) {
-                        for (i in 0 until minOf(related.length(), 4)) {
-                            val item = related.optJSONObject(i) ?: continue
-                            val text = item.optString("Text").trim()
-                            val url = item.optString("FirstURL").trim()
-                            if (text.isNotBlank()) {
-                                snippets.add("- $text")
-                                if (url.isNotBlank()) {
-                                    sources.add("${text.take(28)}|$url")
+                }
+            }
+
+            // 2. Wikipedia Live Global Query (covers global technologies, libraries, figures, news)
+            runCatching {
+                val wikiUrl = "https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=$encoded&utf8=&format=json&srlimit=3"
+                val req = Request.Builder()
+                    .url(wikiUrl)
+                    .addHeader("User-Agent", "JulieAI-Agent/3.0 (Android; Assistant)")
+                    .get()
+                    .build()
+                webClient.newCall(req).execute().use { resp ->
+                    if (resp.isSuccessful) {
+                        val root = JSONObject(resp.body?.string().orEmpty())
+                        val queryObj = root.optJSONObject("query")
+                        val searchArr = queryObj?.optJSONArray("search")
+                        if (searchArr != null) {
+                            for (i in 0 until searchArr.length()) {
+                                val item = searchArr.optJSONObject(i) ?: continue
+                                val title = item.optString("title").trim()
+                                val rawSnippet = item.optString("snippet").replace(Regex("<[^>]*>"), "").trim()
+                                if (title.isNotBlank() && rawSnippet.isNotBlank()) {
+                                    snippets.add("• $title: $rawSnippet")
+                                    val pageUrl = "https://en.wikipedia.org/wiki/${URLEncoder.encode(title.replace(' ', '_'), "UTF-8")}"
+                                    sources.add("$title|$pageUrl")
                                 }
                             }
                         }
@@ -1222,7 +1239,16 @@ class AuraSwarmEngine(private val appContext: Context) {
                 }
             }
 
-            snippets.joinToString("\n").take(1400) to sources.distinct().take(5)
+            // 3. Specialized AI & GitHub context enrichment if asking about tech/tools
+            val lower = query.lowercase(Locale.ROOT)
+            if (lower.contains("ai") || lower.contains("google") || lower.contains("tool") || lower.contains("github") || lower.contains("free")) {
+                sources.add("Google AI Studio (Gemini 2.0)|https://ai.google.dev")
+                sources.add("GitHub Trending AI Repositories|https://github.com/trending")
+                sources.add("NVIDIA NIM AI Catalog|https://build.nvidia.com")
+            }
+
+            val combinedSnippets = snippets.joinToString("\n\n").take(2400)
+            combinedSnippets to sources.distinct().take(6)
         }
 
     private fun buildJulieSystemPrompt(model: AiModelSpec, customSystemPrompt: String): String = buildString {

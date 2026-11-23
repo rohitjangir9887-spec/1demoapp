@@ -179,6 +179,8 @@ class LocalAuraStore(context: Context) : AuraDataSource {
 
     override fun observeMessages(): Flow<List<ChatMessage>> = _messages.asStateFlow()
 
+    fun getRecentMessages(limit: Int = 10): List<ChatMessage> = _messages.value.takeLast(limit)
+
     override suspend fun addMessage(
         role: MessageRole,
         content: String,

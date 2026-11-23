@@ -238,4 +238,14 @@ class JulieCoreTests {
         assertEquals(JulieToolType.SEARCH_YOUTUBE, toolIntent.action.type)
         assertEquals("Android AI Agent", toolIntent.action.argument)
     }
+
+    @Test
+    fun trendingAiProjectsCatalogHasCuratedPublicProjects() {
+        val projects = com.example.data.model.TrendingAiProjectsCatalog.projects
+        assertTrue("Catalog must contain at least 5 curated projects", projects.size >= 5)
+        assertTrue(projects.any { it.category == "Google AI" })
+        assertTrue(projects.any { it.category == "GitHub Agent" })
+        assertTrue(projects.any { it.category == "Automation" })
+        assertTrue(projects.all { it.title.isNotBlank() && it.prompt.isNotBlank() })
+    }
 }

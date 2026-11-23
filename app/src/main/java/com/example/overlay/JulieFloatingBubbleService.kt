@@ -64,6 +64,8 @@ class JulieFloatingBubbleService : Service() {
     private var bubbleParams: WindowManager.LayoutParams? = null
 
     private var panelView: View? = null
+    private var panelMessagesContainer: LinearLayout? = null
+    private var panelScrollView: ScrollView? = null
     private var panelStatusText: TextView? = null
     private var panelOutputText: TextView? = null
     private var panelInput: EditText? = null
@@ -75,6 +77,8 @@ class JulieFloatingBubbleService : Service() {
     private var pointerDismissRunnable: Runnable? = null
 
     private val swarmEngine by lazy { AuraSwarmEngine(applicationContext) }
+    private val localStore by lazy { com.example.data.local.LocalAuraStore(applicationContext) }
+    private val speechSynth by lazy { com.example.voice.JulieSpeechSynthesizer(applicationContext) }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -249,7 +253,7 @@ class JulieFloatingBubbleService : Service() {
         val wm = windowManager ?: return
 
         val panelBg = GradientDrawable().apply {
-            setColor(Color.parseColor("#EE10141F"))
+            setColor(Color.parseColor("#F2090D1A"))
             cornerRadius = dp(22).toFloat()
             setStroke(dp(1), Color.parseColor("#5500D4FF"))
         }
@@ -257,26 +261,36 @@ class JulieFloatingBubbleService : Service() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = panelBg
-            setPadding(dp(14), dp(14), dp(14), dp(14))
-            elevation = dp(14).toFloat()
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            elevation = dp(16).toFloat()
         }
 
-        // Top header row
+        // Top Header Row
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
         val title = TextView(this).apply {
-            text = "जुली • Julie Mini Control"
+            text = "जुली • Julie Mini Chat"
             setTextColor(Color.parseColor("#F5F7FA"))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
             typeface = Typeface.DEFAULT_BOLD
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
-        val collapseBtn = makePillButton("Hide", "#2A3248", "#FFFFFF") {
+        val openAppBtn = makePillButton("Open App", "#1D2A42", "#00D4FF") {
+            val launchIntent = Intent(this, MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            }
+            startActivity(launchIntent)
             removePanelView()
         }
+        val collapseBtn = makePillButton("✕", "#2A3248", "#FFFFFF") {
+            removePanelView()
+        }.apply {
+            (layoutParams as? LinearLayout.LayoutParams)?.marginStart = dp(6)
+        }
         header.addView(title)
+        header.addView(openAppBtn)
         header.addView(collapseBtn)
         root.addView(header)
 
@@ -284,39 +298,104 @@ class JulieFloatingBubbleService : Service() {
         val statusTv = TextView(this).apply {
             text = buildLiveStatusLine()
             setTextColor(Color.parseColor("#00D4FF"))
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f)
-            setPadding(0, dp(6), 0, dp(8))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+            setPadding(0, dp(4), 0, dp(6))
         }
         panelStatusText = statusTv
         root.addView(statusTv)
 
-        // Output box
-        val outputScroll = ScrollView(this).apply {
+        // Quick action tools row
+        val actionsRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 0, 0, dp(8))
+        }
+        val inspectBtn = makePillButton("📱 Read UI", "#172338", "#00D4FF") {
+            val summary = JulieAccessibilityController.inspectVisibleUi()
+            addMessageBubbleToPanel("Julie", "📱 Screen UI Summary:\n$summary", false)
+        }
+        val ytBtn = makePillButton("▶ YouTube", "#172338", "#FF4D6D") {
+            val launched = JulieToolRegistry.launchInstalledApp(this, "youtube")
+            addMessageBubbleToPanel("Julie", if (launched) "Opening YouTube..." else "YouTube not found", false)
+        }
+        val searchBtn = makePillButton("🌐 Search", "#172338", "#BEF264") {
+            val launched = JulieToolRegistry.launchInstalledApp(this, "chrome")
+            addMessageBubbleToPanel("Julie", if (launched) "Opening Chrome..." else "Browser opened", false)
+        }
+        val stopBtn = makePillButton("🛑 STOP", "#E53935", "#FFFFFF") {
+            emergencyStopEverything()
+        }
+
+        val btnLp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+            marginEnd = dp(4)
+        }
+        inspectBtn.layoutParams = btnLp
+        ytBtn.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(4) }
+        searchBtn.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(4) }
+        stopBtn.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+
+        actionsRow.addView(inspectBtn)
+        actionsRow.addView(ytBtn)
+        actionsRow.addView(searchBtn)
+        actionsRow.addView(stopBtn)
+        root.addView(actionsRow)
+
+        // Conversation history ScrollView with vertical layout
+        val msgContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        panelMessagesContainer = msgContainer
+
+        val scroll = ScrollView(this).apply {
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(118)
+                dp(180)
             )
             background = GradientDrawable().apply {
-                setColor(Color.parseColor("#CC181F30"))
-                cornerRadius = dp(12).toFloat()
+                setColor(Color.parseColor("#CC101524"))
+                cornerRadius = dp(14).toFloat()
+                setStroke(dp(1), Color.parseColor("#33243350"))
             }
             setPadding(dp(10), dp(8), dp(10), dp(8))
         }
-        val outputTv = TextView(this).apply {
-            text = "Ask Julie anything about your current screen, or tap Inspect UI / STOP."
-            setTextColor(Color.parseColor("#E8EEF8"))
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f)
-        }
-        panelOutputText = outputTv
-        outputScroll.addView(outputTv)
-        root.addView(outputScroll)
+        panelScrollView = scroll
+        scroll.addView(msgContainer)
+        root.addView(scroll)
 
-        // Prompt input row
+        // Load recent chat history
+        val history = localStore.getRecentMessages(6)
+        if (history.isEmpty()) {
+            addMessageBubbleToPanel("Julie", "नमस्ते! मैं जुली हूँ। Ask anything about your screen or give any phone task.", false)
+        } else {
+            for (msg in history) {
+                addMessageBubbleToPanel(
+                    sender = if (msg.roleEnum() == com.example.data.model.MessageRole.USER) "You" else "Julie",
+                    text = msg.content.take(280),
+                    isUser = msg.roleEnum() == com.example.data.model.MessageRole.USER
+                )
+            }
+        }
+
+        // Prompt Input Row with Voice Mic
         val inputRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, dp(10), 0, dp(8))
+            setPadding(0, dp(10), 0, dp(4))
         }
+
+        val micBtn = makePillButton("🎙", "#1A263C", "#00D4FF") {
+            val isRunning = com.example.voice.JulieBackgroundVoiceService.isVoiceServiceRunning.value
+            if (isRunning) {
+                com.example.voice.JulieBackgroundVoiceService.stop(this)
+                addMessageBubbleToPanel("Julie", "24h Voice Mic paused", false)
+            } else {
+                com.example.voice.JulieBackgroundVoiceService.start(this)
+                addMessageBubbleToPanel("Julie", "24h Voice Mic active! Say 'Hey Julie' or speak your task.", false)
+            }
+        }.apply {
+            (layoutParams as? LinearLayout.LayoutParams)?.marginEnd = dp(6)
+        }
+
         val edit = EditText(this).apply {
             hint = "Ask Julie (Hindi / English)..."
             setHintTextColor(Color.parseColor("#8C96AA"))
@@ -325,15 +404,16 @@ class JulieFloatingBubbleService : Service() {
             imeOptions = EditorInfo.IME_ACTION_SEND
             isSingleLine = true
             background = GradientDrawable().apply {
-                setColor(Color.parseColor("#FF1A2234"))
+                setColor(Color.parseColor("#FF172033"))
                 cornerRadius = dp(12).toFloat()
-                setStroke(dp(1), Color.parseColor("#4476B900"))
+                setStroke(dp(1), Color.parseColor("#4400D4FF"))
             }
             setPadding(dp(10), dp(8), dp(10), dp(8))
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
         panelInput = edit
-        val sendBtn = makePillButton("Ask", "#76B900", "#071400") {
+
+        val sendBtn = makePillButton("Ask", "#005ECB", "#FFFFFF") {
             val q = edit.text?.toString()?.trim().orEmpty()
             if (q.isNotEmpty()) {
                 edit.setText("")
@@ -342,45 +422,13 @@ class JulieFloatingBubbleService : Service() {
         }.apply {
             (layoutParams as? LinearLayout.LayoutParams)?.marginStart = dp(6)
         }
+
+        inputRow.addView(micBtn)
         inputRow.addView(edit)
         inputRow.addView(sendBtn)
         root.addView(inputRow)
 
-        // Quick action controls row
-        val actionsRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        val inspectBtn = makePillButton("Read UI", "#1D2A42", "#00D4FF") {
-            val summary = JulieAccessibilityController.inspectVisibleUi()
-            panelOutputText?.text = summary
-        }
-        val openAppBtn = makePillButton("Open App", "#1D2A42", "#FFFFFF") {
-            val launchIntent = Intent(this, MainActivity::class.java).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-            }
-            startActivity(launchIntent)
-            removePanelView()
-        }
-        val stopBtn = makePillButton("STOP", "#E53935", "#FFFFFF") {
-            emergencyStopEverything()
-        }
-
-        val btnLp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-            marginEnd = dp(6)
-        }
-        inspectBtn.layoutParams = btnLp
-        openAppBtn.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-            marginEnd = dp(6)
-        }
-        stopBtn.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-
-        actionsRow.addView(inspectBtn)
-        actionsRow.addView(openAppBtn)
-        actionsRow.addView(stopBtn)
-        root.addView(actionsRow)
-
-        val panelWidth = (resources.displayMetrics.widthPixels * 0.88f).toInt().coerceAtMost(dp(380))
+        val panelWidth = (resources.displayMetrics.widthPixels * 0.90f).toInt().coerceAtMost(dp(390))
         val panelParams = WindowManager.LayoutParams(
             panelWidth,
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -393,11 +441,39 @@ class JulieFloatingBubbleService : Service() {
             softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN
         }
 
-        // Keep panel state consistent if overlay access was revoked.
         if (runCatching { wm.addView(root, panelParams) }.isSuccess) {
             panelView = root
             isExpanded = true
         }
+    }
+
+    private fun addMessageBubbleToPanel(sender: String, text: String, isUser: Boolean): TextView {
+        val container = panelMessagesContainer ?: return TextView(this)
+        val bubble = TextView(this).apply {
+            this.text = if (isUser) text else "🤖 $text"
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            val bg = GradientDrawable().apply {
+                setColor(if (isUser) Color.parseColor("#005ECB") else Color.parseColor("#172235"))
+                cornerRadius = dp(12).toFloat()
+                if (!isUser) {
+                    setStroke(dp(1), Color.parseColor("#3300D4FF"))
+                }
+            }
+            background = bg
+            setPadding(dp(10), dp(6), dp(10), dp(6))
+            val lp = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                gravity = if (isUser) Gravity.END else Gravity.START
+                topMargin = dp(6)
+            }
+            layoutParams = lp
+        }
+        container.addView(bubble)
+        panelScrollView?.post { panelScrollView?.fullScroll(ScrollView.FOCUS_DOWN) }
+        return bubble
     }
 
     private fun makePillButton(label: String, bgHex: String, textHex: String, onClick: () -> Unit): Button {
@@ -409,22 +485,35 @@ class JulieFloatingBubbleService : Service() {
             typeface = Typeface.DEFAULT_BOLD
             minHeight = dp(38)
             minimumHeight = dp(38)
-            minWidth = dp(52)
+            minWidth = dp(48)
             background = GradientDrawable().apply {
                 setColor(Color.parseColor(bgHex))
                 cornerRadius = dp(12).toFloat()
             }
-            setPadding(dp(10), dp(6), dp(10), dp(6))
+            setPadding(dp(8), dp(6), dp(8), dp(6))
             setOnClickListener { onClick() }
         }
     }
 
     private fun askJulieFromBubble(prompt: String) {
         activePromptJob?.cancel()
-        // Only a user-typed, exact command can trigger an Android gesture.
-        // Model-generated responses are never parsed as device commands.
+        addMessageBubbleToPanel("You", prompt, true)
+
+        serviceScope.launch {
+            localStore.addMessage(
+                role = com.example.data.model.MessageRole.USER,
+                content = prompt,
+                modelUsed = "User",
+                swarmModels = emptyList(),
+                searchSources = emptyList(),
+                usedWebSearch = false,
+                hasScreenContext = ScreenCaptureStore.state.value.latestBitmap != null
+            )
+        }
+
         if (executeExplicitOverlayCommand(prompt)) return
-        panelOutputText?.text = "Julie is thinking..."
+
+        val replyBubble = addMessageBubbleToPanel("Julie", "Julie is thinking...", false)
         activePromptJob = serviceScope.launch {
             val latestFrame = ScreenCaptureStore.state.value.latestBitmap
             val uiCtx = if (JulieAccessibilityController.state.value.isConnected) {
@@ -447,15 +536,31 @@ class JulieFloatingBubbleService : Service() {
                         panelStatusText?.text = "${stage.activeModelName} • ${stage.stageLabel}"
                     },
                     onStreamToken = { partial ->
-                        panelOutputText?.text = partial
+                        replyBubble.text = "🤖 $partial"
+                        panelScrollView?.post { panelScrollView?.fullScroll(ScrollView.FOCUS_DOWN) }
                     }
                 )
             }.onSuccess { result ->
-                panelOutputText?.text = result.finalText
+                replyBubble.text = "🤖 ${result.finalText}"
                 panelStatusText?.text = buildLiveStatusLine()
+                panelScrollView?.post { panelScrollView?.fullScroll(ScrollView.FOCUS_DOWN) }
+
+                serviceScope.launch {
+                    localStore.addMessage(
+                        role = com.example.data.model.MessageRole.ASSISTANT,
+                        content = result.finalText,
+                        modelUsed = result.modelUsed,
+                        swarmModels = result.participatingModels,
+                        searchSources = result.groundingUrls,
+                        usedWebSearch = result.groundingUrls.isNotEmpty(),
+                        hasScreenContext = latestFrame != null
+                    )
+                }
+                speechSynth.speak(result.finalText)
             }.onFailure { err ->
-                panelOutputText?.text = "Error: ${err.localizedMessage ?: "Check NVIDIA NIM API key in Models tab."}"
+                replyBubble.text = "🤖 Error: ${err.localizedMessage ?: "Check NVIDIA NIM API key in Models tab."}"
                 panelStatusText?.text = buildLiveStatusLine()
+                panelScrollView?.post { panelScrollView?.fullScroll(ScrollView.FOCUS_DOWN) }
             }
         }
     }
@@ -521,6 +626,7 @@ class JulieFloatingBubbleService : Service() {
             JulieOverlayCommand.EmergencyStop -> false to "Stopped."
         }
         panelOutputText?.text = outcome.second
+        addMessageBubbleToPanel("Julie", outcome.second, false)
         panelStatusText?.text = buildLiveStatusLine()
         return true
     }
@@ -647,6 +753,8 @@ class JulieFloatingBubbleService : Service() {
     private fun removePanelView() {
         panelView?.let { v -> runCatching { windowManager?.removeView(v) } }
         panelView = null
+        panelMessagesContainer = null
+        panelScrollView = null
         panelStatusText = null
         panelOutputText = null
         panelInput = null

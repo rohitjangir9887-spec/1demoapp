@@ -1,5 +1,11 @@
 package com.example.ui.screens
 
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.os.PowerManager
+import android.provider.Settings
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -27,6 +33,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.BatteryAlert
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.DeleteOutline
@@ -35,6 +42,9 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.TaskAlt
+import androidx.compose.material.icons.rounded.TrendingUp
+import androidx.compose.ui.platform.LocalContext
+import com.example.data.model.TrendingAiProjectsCatalog
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -281,6 +291,194 @@ fun TasksScreen(
                                 style = MaterialTheme.typography.labelLarge,
                                 color = AuraCyan
                             )
+                        }
+                    }
+                }
+            }
+
+            val context = LocalContext.current
+            val powerManager = remember { context.getSystemService(Context.POWER_SERVICE) as? PowerManager }
+            val isBatteryIgnored = remember {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    powerManager?.isIgnoringBatteryOptimizations(context.packageName) == true
+                } else true
+            }
+
+            if (!isBatteryIgnored) {
+                Spacer(Modifier.height(10.dp))
+                GlassCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    cornerRadius = 16.dp,
+                    accentBorderColor = AuraAmber
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.BatteryAlert,
+                            contentDescription = null,
+                            tint = AuraAmber,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "24h Background Run (Doze Mode)",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = PearlWhite
+                            )
+                            Text(
+                                text = "Disable battery restrictions so Julie runs tasks even when the phone is locked.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = SlateMist
+                            )
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        OutlinedButton(
+                            onClick = {
+                                try {
+                                    val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                        Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                                            data = Uri.parse("package:${context.packageName}")
+                                        }
+                                    } else {
+                                        Intent(Settings.ACTION_SETTINGS)
+                                    }
+                                    context.startActivity(intent)
+                                } catch (_: Exception) {
+                                    try {
+                                        context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                                    } catch (_: Exception) {}
+                                }
+                            },
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(1.dp, AuraAmber),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = "Allow 24h",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = AuraAmber
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            // Trending Public AI & GitHub Projects
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Rounded.TrendingUp,
+                        contentDescription = null,
+                        tint = AuraNimGreen,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = "TRENDING PUBLIC AI & GITHUB PROJECTS",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = AuraNimGreen,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Text(
+                    text = "1-Click Run",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = SlateMist
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                TrendingAiProjectsCatalog.projects.forEach { proj ->
+                    GlassCard(
+                        modifier = Modifier.width(260.dp),
+                        cornerRadius = 18.dp,
+                        accentBorderColor = when (proj.category) {
+                            "Google AI" -> AuraCyan
+                            "GitHub Agent" -> AuraBlue
+                            "Automation" -> AuraMint
+                            else -> AuraNimGreen
+                        }
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = AuraBlue.copy(alpha = 0.2f),
+                                border = BorderStroke(1.dp, AuraBlue.copy(alpha = 0.4f))
+                            ) {
+                                Text(
+                                    text = proj.category,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = AuraCyan,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                text = proj.title,
+                                style = MaterialTheme.typography.titleSmall,
+                                color = PearlWhite,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Spacer(Modifier.height(3.dp))
+                            Text(
+                                text = proj.subtitle,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = SlateMist,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Spacer(Modifier.height(10.dp))
+                            Button(
+                                onClick = {
+                                    onCreateTask(
+                                        proj.title,
+                                        proj.prompt,
+                                        proj.taskCategory,
+                                        proj.priority,
+                                        proj.defaultScheduleMode,
+                                        true
+                                    )
+                                },
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = AuraNimGreen.copy(alpha = 0.25f),
+                                    contentColor = Color(0xFFBEF264)
+                                ),
+                                border = BorderStroke(1.dp, AuraNimGreen.copy(alpha = 0.5f)),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(36.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.PlayArrow,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(Modifier.width(4.dp))
+                                Text(
+                                    text = "Run Swarm Task",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                         }
                     }
                 }

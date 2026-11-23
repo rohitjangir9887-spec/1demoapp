@@ -95,11 +95,16 @@ object JulieToolRegistry {
         _actionLogs.value = emptyList()
     }
 
+    fun launchInstalledApp(context: Context, appQuery: String): Boolean = launchApp(context, appQuery).isSuccess
+
     private fun launchApp(context: Context, appQuery: String): Result<String> {
-        val clean = appQuery.trim().lowercase()
-        val pkg = knownAppPackages.entries.firstOrNull { clean.contains(it.key) }?.value
-        if (pkg != null) {
-            val intent = context.packageManager.getLaunchIntentForPackage(pkg)
+        val clean = appQuery.trim().lowercase(java.util.Locale.ROOT)
+        val pm = context.packageManager
+
+        // 1. Direct package match
+        val directPkg = knownAppPackages.entries.firstOrNull { clean.contains(it.key) }?.value
+        if (directPkg != null) {
+            val intent = pm.getLaunchIntentForPackage(directPkg)
             if (intent != null) {
                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 return runCatching {
@@ -108,11 +113,40 @@ object JulieToolRegistry {
                 }
             }
         }
-        // Fallback: open official web destination for YouTube/Maps/Gmail if app not installed
+
+        // 2. Query all launchable apps dynamically installed on device
+        val mainIntent = Intent(Intent.ACTION_MAIN, null).apply { addCategory(Intent.CATEGORY_LAUNCHER) }
+        val resolveInfos = pm.queryIntentActivities(mainIntent, 0)
+        for (info in resolveInfos) {
+            val appLabel = info.loadLabel(pm).toString().lowercase(java.util.Locale.ROOT)
+            val pkgName = info.activityInfo.packageName.lowercase(java.util.Locale.ROOT)
+
+            if (appLabel.contains(clean) || clean.contains(appLabel) || pkgName.contains(clean)) {
+                val launchIntent = pm.getLaunchIntentForPackage(info.activityInfo.packageName)
+                if (launchIntent != null) {
+                    launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    return runCatching {
+                        context.startActivity(launchIntent)
+                        "Opened ${info.loadLabel(pm)}"
+                    }
+                }
+            }
+        }
+
+        // 3. Fallback for system tools like Settings, Camera, Dialer, or web URLs
         return when {
+            clean.contains("setting") -> {
+                val intent = Intent(android.provider.Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                runCatching { context.startActivity(intent); "Opened Settings" }
+            }
+            clean.contains("camera") -> {
+                val intent = Intent(android.provider.MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                runCatching { context.startActivity(intent); "Opened Camera" }
+            }
+            clean.contains("dial") || clean.contains("call") -> openDialer(context, "")
             clean.contains("youtube") -> openUrl(context, "https://m.youtube.com")
             clean.contains("maps") -> openUrl(context, "https://maps.google.com")
-            else -> Result.failure(IllegalStateException("App \"$appQuery\" is not installed on this device."))
+            else -> Result.failure(IllegalStateException("App \"$appQuery\" not found on your device."))
         }
     }
 

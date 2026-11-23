@@ -169,24 +169,50 @@ class JulieBackgroundVoiceService : Service() {
                 isTtsReady = true
                 ttsEngine?.language = Locale.getDefault()
                 ttsEngine?.setSpeechRate(1.05f)
+                ttsEngine?.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
+                    override fun onStart(utteranceId: String?) {
+                        _isListeningFlow.value = false
+                    }
+                    override fun onDone(utteranceId: String?) {
+                        // Resume listening after Julie finishes speaking
+                        restartListeningSafely(500L)
+                    }
+                    @Deprecated("Deprecated in Java")
+                    override fun onError(utteranceId: String?) {
+                        restartListeningSafely(500L)
+                    }
+                })
             }
         }
     }
 
     private fun speakText(text: String) {
         if (!isTtsReady || text.isBlank()) return
-        ttsEngine?.speak(text.take(300), TextToSpeech.QUEUE_FLUSH, null, "julie_bg_speech")
+        // Pause microphone while Julie is speaking to prevent listening to self
+        try { speechRecognizer?.cancel() } catch (_: Exception) {}
+        _isListeningFlow.value = false
+        val cleanSpeech = JulieSpeechSynthesizer.sanitizeForSpeech(text).take(280)
+        ttsEngine?.speak(cleanSpeech, TextToSpeech.QUEUE_FLUSH, null, "julie_bg_speech_${System.currentTimeMillis()}")
+    }
+
+    private fun recreateSpeechRecognizer() {
+        try {
+            speechRecognizer?.cancel()
+            speechRecognizer?.destroy()
+        } catch (_: Exception) {}
+        speechRecognizer = null
+        if (SpeechRecognizer.isRecognitionAvailable(this)) {
+            speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this).apply {
+                setRecognitionListener(recognitionListener)
+            }
+        }
     }
 
     private fun initSpeechRecognizer() {
-        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-            Log.w(TAG, "Speech recognition not available on this device")
-            return
-        }
-        speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this).apply {
-            setRecognitionListener(recognitionListener)
-        }
+        recreateSpeechRecognizer()
     }
+
+    private var consecutiveErrors = 0
 
     private fun restartListeningSafely(delayMs: Long = 400L) {
         if (isRestarting) return
@@ -194,17 +220,26 @@ class JulieBackgroundVoiceService : Service() {
         mainHandler.postDelayed({
             isRestarting = false
             try {
-                speechRecognizer?.cancel()
+                if (speechRecognizer == null || consecutiveErrors >= 2) {
+                    consecutiveErrors = 0
+                    recreateSpeechRecognizer()
+                } else {
+                    speechRecognizer?.cancel()
+                }
+
                 val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                     putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toLanguageTag())
+                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, "hi-IN")
+                    putExtra(RecognizerIntent.EXTRA_ADDITIONAL_LANGUAGES, arrayOf("en-IN", "en-US"))
                     putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+                    putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                     putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, packageName)
                 }
                 speechRecognizer?.startListening(intent)
                 _isListeningFlow.value = true
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to start background listening: ${e.message}")
+                recreateSpeechRecognizer()
             }
         }, delayMs)
     }
@@ -212,6 +247,7 @@ class JulieBackgroundVoiceService : Service() {
     private val recognitionListener = object : RecognitionListener {
         override fun onReadyForSpeech(params: Bundle?) {
             _isListeningFlow.value = true
+            consecutiveErrors = 0
         }
 
         override fun onBeginningOfSpeech() = Unit
@@ -223,21 +259,29 @@ class JulieBackgroundVoiceService : Service() {
 
         override fun onError(error: Int) {
             _isListeningFlow.value = false
-            // Silently restart after brief delay unless killed
-            restartListeningSafely(500L)
+            consecutiveErrors++
+            val isBusy = error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY ||
+                    error == SpeechRecognizer.ERROR_CLIENT ||
+                    error == SpeechRecognizer.ERROR_AUDIO
+            if (isBusy || consecutiveErrors >= 2) {
+                recreateSpeechRecognizer()
+                restartListeningSafely(900L)
+            } else {
+                restartListeningSafely(500L)
+            }
         }
 
         override fun onResults(results: Bundle?) {
             _isListeningFlow.value = false
+            consecutiveErrors = 0
             val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
             val transcript = matches?.firstOrNull()?.trim().orEmpty()
 
             if (transcript.isNotBlank()) {
                 handleRecognizedSpeech(transcript)
+            } else {
+                restartListeningSafely(600L)
             }
-
-            // Immediately continue listening for next command
-            restartListeningSafely(800L)
         }
 
         override fun onPartialResults(partialResults: Bundle?) = Unit

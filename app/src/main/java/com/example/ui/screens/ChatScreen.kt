@@ -1316,6 +1316,55 @@ private fun ChatMessageBubble(
                         onOpenLink = onOpenLink
                     )
 
+                    val extractedUrls = remember(message.content) {
+                        val regex = Regex("https?://[a-zA-Z0-9_.-]+(?:/[a-zA-Z0-9_.~!*';:@&=+$,/?%#[-\\]]*)?")
+                        regex.findAll(message.content)
+                            .map { it.value.trimEnd('.', ',', ')', ']', ';', '>', '"') }
+                            .distinct()
+                            .toList()
+                    }
+                    if (extractedUrls.isNotEmpty()) {
+                        Spacer(Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            extractedUrls.forEach { url ->
+                                val domain = try {
+                                    Uri.parse(url).host ?: url.removePrefix("https://").take(22)
+                                } catch (_: Exception) {
+                                    url.take(22)
+                                }
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = AuraCyan.copy(alpha = 0.14f),
+                                    border = BorderStroke(1.dp, AuraCyan.copy(alpha = 0.45f)),
+                                    modifier = Modifier.clickable { onOpenLink(url) }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.OpenInNew,
+                                            contentDescription = "Open Link",
+                                            tint = AuraCyan,
+                                            modifier = Modifier.size(13.dp)
+                                        )
+                                        Spacer(Modifier.width(6.dp))
+                                        Text(
+                                            text = domain,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = AuraCyan,
+                                            maxLines = 1,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     if (message.searchSources.isNotEmpty()) {
                         Spacer(Modifier.height(12.dp))
                         Text(
