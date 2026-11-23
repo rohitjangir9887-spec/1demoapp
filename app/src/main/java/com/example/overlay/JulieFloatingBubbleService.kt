@@ -66,6 +66,7 @@ class JulieFloatingBubbleService : Service() {
     private var isExpanded = false
 
     private var activePromptJob: Job? = null
+    private var telemetryJob: Job? = null
     private var pointerView: View? = null
     private var pointerDismissRunnable: Runnable? = null
 
@@ -102,7 +103,11 @@ class JulieFloatingBubbleService : Service() {
                     return START_NOT_STICKY
                 }
                 ensureBubbleAttached()
-                _isOverlayRunning.value = true
+                _isOverlayRunning.value = bubbleView != null
+                if (bubbleView == null) {
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
                 startLiveTelemetryObserver()
                 return START_STICKY
             }
@@ -218,9 +223,11 @@ class JulieFloatingBubbleService : Service() {
             }
         }
 
-        bubbleParams = params
-        bubbleView = container
-        runCatching { wm.addView(container, params) }
+        // Do not report an active bubble when Android rejects overlay attachment.
+        if (runCatching { wm.addView(container, params) }.isSuccess) {
+            bubbleParams = params
+            bubbleView = container
+        }
     }
 
     private fun toggleMiniPanel() {
@@ -380,9 +387,11 @@ class JulieFloatingBubbleService : Service() {
             softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN
         }
 
-        panelView = root
-        isExpanded = true
-        runCatching { wm.addView(root, panelParams) }
+        // Keep panel state consistent if overlay access was revoked.
+        if (runCatching { wm.addView(root, panelParams) }.isSuccess) {
+            panelView = root
+            isExpanded = true
+        }
     }
 
     private fun makePillButton(label: String, bgHex: String, textHex: String, onClick: () -> Unit): Button {
@@ -458,7 +467,9 @@ class JulieFloatingBubbleService : Service() {
     }
 
     private fun startLiveTelemetryObserver() {
-        serviceScope.launch {
+        // Starting the service again must never create duplicate infinite collectors.
+        if (telemetryJob?.isActive == true) return
+        telemetryJob = serviceScope.launch {
             ScreenCaptureStore.state.collect {
                 panelStatusText?.text = buildLiveStatusLine()
             }
