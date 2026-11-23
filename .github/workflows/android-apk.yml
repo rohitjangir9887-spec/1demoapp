@@ -23,12 +23,12 @@ jobs:
       - name: Checkout app source
         uses: actions/checkout@v4
 
-      - name: Setup JDK 17
+      - name: Setup JDK 21 (Robolectric API 36 requirement)
         id: jdk
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '21'
 
       - name: Setup Android SDK
         id: android
