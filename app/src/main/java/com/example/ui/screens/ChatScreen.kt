@@ -742,6 +742,20 @@ fun ChatScreen(
                     accentColor = AuraAmber,
                     icon = Icons.Rounded.Bolt
                 )
+                val is24hVoiceRunning by com.example.voice.JulieBackgroundVoiceService.isVoiceServiceRunning.collectAsStateWithLifecycle()
+                GlassChip(
+                    label = if (is24hVoiceRunning) "24h Voice ON" else "24h Voice OFF",
+                    selected = is24hVoiceRunning,
+                    onClick = {
+                        if (is24hVoiceRunning) {
+                            com.example.voice.JulieBackgroundVoiceService.stop(context)
+                        } else {
+                            com.example.voice.JulieBackgroundVoiceService.start(context)
+                        }
+                    },
+                    accentColor = if (is24hVoiceRunning) AuraNimGreen else SlateMist,
+                    icon = Icons.Rounded.Mic
+                )
             }
 
             // Floating Frosted Composer Bar

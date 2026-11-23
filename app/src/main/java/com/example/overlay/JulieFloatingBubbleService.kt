@@ -564,37 +564,46 @@ class JulieFloatingBubbleService : Service() {
         val wm = windowManager ?: return
         removePointerOverlay()
 
-        val ringSize = dp(52)
+        val ringSize = dp(64)
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
         }
 
-        val ring = View(this).apply {
+        val ring = FrameLayout(this).apply {
             layoutParams = LinearLayout.LayoutParams(ringSize, ringSize)
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(Color.parseColor("#3300D4FF"))
-                setStroke(dp(3), Color.parseColor("#FF76B900"))
+                setColor(Color.parseColor("#4D00F0FF"))
+                setStroke(dp(3), Color.parseColor("#FFBEF264"))
             }
+            // High visibility center touch target dot
+            val dot = View(this@JulieFloatingBubbleService).apply {
+                val dotSize = dp(14)
+                layoutParams = FrameLayout.LayoutParams(dotSize, dotSize, Gravity.CENTER)
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(Color.parseColor("#FFFF4D6D"))
+                }
+            }
+            addView(dot)
         }
         container.addView(ring)
 
-        if (label.isNotBlank()) {
-            val badge = TextView(this).apply {
-                text = label.take(28)
-                setTextColor(Color.WHITE)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 10.5f)
-                typeface = Typeface.DEFAULT_BOLD
-                setPadding(dp(8), dp(3), dp(8), dp(3))
-                background = GradientDrawable().apply {
-                    setColor(Color.parseColor("#DD10141F"))
-                    cornerRadius = dp(10).toFloat()
-                    setStroke(dp(1), Color.parseColor("#8800D4FF"))
-                }
+        val displayText = if (label.isNotBlank()) "🎯 $label" else "🎯 Julie Touch (${x.toInt()}, ${y.toInt()})"
+        val badge = TextView(this).apply {
+            text = displayText.take(36)
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(dp(10), dp(4), dp(10), dp(4))
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#EE0A0F1A"))
+                cornerRadius = dp(12).toFloat()
+                setStroke(dp(1), Color.parseColor("#FF00F0FF"))
             }
-            container.addView(badge)
         }
+        container.addView(badge)
 
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -613,19 +622,19 @@ class JulieFloatingBubbleService : Service() {
         pointerView = container
         runCatching { wm.addView(container, params) }
 
-        val pulseX = ObjectAnimator.ofFloat(ring, View.SCALE_X, 0.7f, 1.35f, 1.0f)
-        val pulseY = ObjectAnimator.ofFloat(ring, View.SCALE_Y, 0.7f, 1.35f, 1.0f)
+        val pulseX = ObjectAnimator.ofFloat(ring, View.SCALE_X, 0.6f, 1.4f, 1.0f)
+        val pulseY = ObjectAnimator.ofFloat(ring, View.SCALE_Y, 0.6f, 1.4f, 1.0f)
         val fade = ObjectAnimator.ofFloat(container, View.ALPHA, 1f, 1f, 0f)
         AnimatorSet().apply {
             playTogether(pulseX, pulseY, fade)
-            duration = 1100L
+            duration = 1500L
             interpolator = DecelerateInterpolator()
             start()
         }
 
         val dismiss = Runnable { removePointerOverlay() }
         pointerDismissRunnable = dismiss
-        mainHandler.postDelayed(dismiss, 1150L)
+        mainHandler.postDelayed(dismiss, 1600L)
     }
 
     private fun removePointerOverlay() {

@@ -7,6 +7,8 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
@@ -56,6 +58,11 @@
         <service
             android:name=".overlay.JulieFloatingBubbleService"
             android:exported="false" />
+
+        <service
+            android:name=".voice.JulieBackgroundVoiceService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
 
         <service
             android:name=".accessibility.JulieAccessibilityService"

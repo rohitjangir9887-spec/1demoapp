@@ -182,12 +182,28 @@ class ScreenCaptureService : Service() {
             Intent(this, ScreenCaptureService::class.java).apply { action = ACTION_STOP },
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
+        val bubbleIntent = PendingIntent.getService(
+            this,
+            103,
+            Intent(this, com.example.overlay.JulieFloatingBubbleService::class.java).apply {
+                action = com.example.overlay.JulieFloatingBubbleService.ACTION_START
+            },
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        val captureIntent = PendingIntent.getService(
+            this,
+            104,
+            Intent(this, ScreenCaptureService::class.java).apply { action = ACTION_CAPTURE_FRAME },
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
 
         val notification: Notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Julie AI • Live Screen Share Active")
-            .setContentText("Continuous vision stream running • Tap Stop anytime")
+            .setContentText("Continuous vision stream running • Control phone & chat")
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentIntent(openAppIntent)
+            .addAction(android.R.drawable.ic_menu_crop, "Chat Bubble", bubbleIntent)
+            .addAction(android.R.drawable.ic_menu_camera, "Capture Frame", captureIntent)
             .addAction(android.R.drawable.ic_media_pause, "STOP", stopIntent)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)

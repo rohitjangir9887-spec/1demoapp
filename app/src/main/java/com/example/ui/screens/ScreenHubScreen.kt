@@ -52,7 +52,9 @@ import androidx.compose.material.icons.rounded.CameraAlt
 import androidx.compose.material.icons.rounded.CloudUpload
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Layers
+import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.PhotoLibrary
 import androidx.compose.material.icons.rounded.ScreenShare
 import androidx.compose.material.icons.rounded.Storage
@@ -504,6 +506,124 @@ fun ScreenHubScreen(
                                     Text("ImageKit", color = AuraCyan)
                                 }
                             }
+                        }
+                    }
+                }
+            }
+
+            // 2A. 24h Background Voice & 'Hey Julie' Wake-Word Assistant
+            val is24hVoiceRunning by com.example.voice.JulieBackgroundVoiceService.isVoiceServiceRunning.collectAsStateWithLifecycle()
+            val is24hListening by com.example.voice.JulieBackgroundVoiceService.isListeningFlow.collectAsStateWithLifecycle()
+            val lastHeardText by com.example.voice.JulieBackgroundVoiceService.lastHeardCommand.collectAsStateWithLifecycle()
+
+            GlassCard(
+                modifier = Modifier.fillMaxWidth(),
+                cornerRadius = 24.dp,
+                accentBorderColor = if (is24hVoiceRunning) AuraNimGreen else AuraCyan.copy(0.45f)
+            ) {
+                Column(
+                    modifier = Modifier.padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IosSquircleIcon(
+                                gradientStart = if (is24hVoiceRunning) AuraNimGreen else AuraCyan,
+                                gradientEnd = if (is24hVoiceRunning) AuraMint else AuraBlue,
+                                size = 42.dp,
+                                cornerRadius = 13.dp,
+                                icon = if (is24hListening) Icons.Rounded.GraphicEq else Icons.Rounded.Mic,
+                                contentDescription = "24h Background Voice"
+                            )
+                            Spacer(Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "24h Background Voice Assistant",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = PearlWhite,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = if (is24hVoiceRunning) "Listening for 'Hey Julie' / 'हाय जुली'" else "Background mic is paused",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (is24hVoiceRunning) AuraMint else SlateMist
+                                )
+                            }
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = (if (is24hVoiceRunning) AuraNimGreen else SlateMist).copy(alpha = 0.18f),
+                            border = BorderStroke(1.dp, if (is24hVoiceRunning) AuraNimGreen else SlateMist.copy(alpha = 0.5f))
+                        ) {
+                            Text(
+                                text = if (is24hVoiceRunning) "24h ON" else "OFF",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (is24hVoiceRunning) AuraNimGreen else SlateMist,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                            )
+                        }
+                    }
+
+                    Text(
+                        text = "Phone band ho ya aap koi doosri app chala rahe ho, 'Hey Julie' bolkar phone control karein, YouTube chalayein, call lagayein ya task automate karein.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = SlateMist
+                    )
+
+                    if (is24hVoiceRunning && lastHeardText.isNotBlank()) {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = ObsidianSurfaceElevated,
+                            border = BorderStroke(1.dp, ObsidianCardBorder),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Rounded.GraphicEq, null, tint = AuraCyan, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    text = "Last heard: \"$lastHeardText\"",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = PearlWhite,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                if (is24hVoiceRunning) {
+                                    com.example.voice.JulieBackgroundVoiceService.stop(context)
+                                } else {
+                                    com.example.voice.JulieBackgroundVoiceService.start(context)
+                                }
+                            },
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (is24hVoiceRunning) AuraCoral else AuraNimGreen,
+                                contentColor = if (is24hVoiceRunning) PearlWhite else Color(0xFF071400)
+                            ),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(46.dp)
+                        ) {
+                            Text(
+                                text = if (is24hVoiceRunning) "Stop 24h Background Mic" else "Start 24h Background Voice",
+                                fontWeight = FontWeight.Bold
+                            )
                         }
                     }
                 }

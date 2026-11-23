@@ -236,21 +236,21 @@
 
                 <!-- Quick Prompt Suggestions Chips -->
                 <div class="flex flex-wrap gap-2 mb-4 pt-2 border-t border-white/10">
-                    <button onclick="sendQuickPrompt('Google par top trending FREE AI tools kaun kaun se hain?')" class="text-xs px-3 py-1.5 rounded-xl bg-white/5 hover:bg-auraCyan/20 hover:border-auraCyan/40 border border-white/10 text-slate-300 transition flex items-center gap-1.5">
+                    <button onclick="sendQuickPrompt('Hey Julie, YouTube kholo aur trending AI videos search karo.')" class="text-xs px-3 py-1.5 rounded-xl bg-white/5 hover:bg-auraCyan/20 hover:border-auraCyan/40 border border-white/10 text-slate-300 transition flex items-center gap-1.5">
+                        <i data-lucide="mic" class="w-3.5 h-3.5 text-auraCyan"></i>
+                        <span>🎙️ 'Hey Julie' YouTube Kholo</span>
+                    </button>
+                    <button onclick="sendQuickPrompt('Screen par Julie kaha par touch kar rahi hai aur automation kaise dikhta hai?')" class="text-xs px-3 py-1.5 rounded-xl bg-white/5 hover:bg-auraGreen/20 hover:border-auraGreen/40 border border-white/10 text-slate-300 transition flex items-center gap-1.5">
+                        <i data-lucide="crosshair" class="w-3.5 h-3.5 text-auraGreen"></i>
+                        <span>🎯 Visual Screen Touch & Tap Indicator</span>
+                    </button>
+                    <button onclick="sendQuickPrompt('Google par top trending FREE AI tools kaun kaun se hain?')" class="text-xs px-3 py-1.5 rounded-xl bg-white/5 hover:bg-auraAmber/20 hover:border-auraAmber/40 border border-white/10 text-slate-300 transition flex items-center gap-1.5">
                         <i data-lucide="flame" class="w-3.5 h-3.5 text-auraAmber"></i>
                         <span>🔥 Trending Free AI Tools</span>
                     </button>
-                    <button onclick="sendQuickPrompt('Mere liye ek daily study and coding routine plan banao Hinglish me.')" class="text-xs px-3 py-1.5 rounded-xl bg-white/5 hover:bg-auraGreen/20 hover:border-auraGreen/40 border border-white/10 text-slate-300 transition flex items-center gap-1.5">
-                        <i data-lucide="calendar" class="w-3.5 h-3.5 text-auraGreen"></i>
-                        <span>📝 Daily Study & Coding Plan</span>
-                    </button>
-                    <button onclick="sendQuickPrompt('Kotlin me ek clean Android Coroutines function ka code likho with explanation.')" class="text-xs px-3 py-1.5 rounded-xl bg-white/5 hover:bg-auraIndigo/20 hover:border-auraIndigo/40 border border-white/10 text-slate-300 transition flex items-center gap-1.5">
-                        <i data-lucide="code" class="w-3.5 h-3.5 text-auraIndigo"></i>
-                        <span>💻 Android Kotlin Code</span>
-                    </button>
-                    <button onclick="sendQuickPrompt('Julie AI app ke main features kya hain aur ise kaise install karein?')" class="text-xs px-3 py-1.5 rounded-xl bg-white/5 hover:bg-auraCoral/20 hover:border-auraCoral/40 border border-white/10 text-slate-300 transition flex items-center gap-1.5">
-                        <i data-lucide="help-circle" class="w-3.5 h-3.5 text-auraCoral"></i>
-                        <span>❓ App Kaise Kaam Karti Hai?</span>
+                    <button onclick="sendQuickPrompt('Mere liye ek daily study and coding routine plan banao Hinglish me.')" class="text-xs px-3 py-1.5 rounded-xl bg-white/5 hover:bg-auraIndigo/20 hover:border-auraIndigo/40 border border-white/10 text-slate-300 transition flex items-center gap-1.5">
+                        <i data-lucide="calendar" class="w-3.5 h-3.5 text-auraIndigo"></i>
+                        <span>📝 24h Autonomous Task Plan</span>
                     </button>
                 </div>
 
@@ -492,7 +492,27 @@
         function generateSmartAiResponse(prompt) {
             const lower = prompt.toLowerCase();
 
-            if (lower.includes('trending') || lower.includes('trend') || lower.includes('tool')) {
+            if (lower.includes('youtube') || lower.includes('video')) {
+                return `
+                    <p class="font-bold text-auraCyan mb-2">▶️ YouTube Voice Automation (Julie AI):</p>
+                    <p class="mb-2">Aap jaise hi bolte hain <strong>'Hey Julie YouTube kholo'</strong> ya <strong>'YouTube par trending AI songs chalao'</strong>:</p>
+                    <ul class="space-y-1 list-disc list-inside text-xs sm:text-sm">
+                        <li>Julie background microphone se instant wake-word detect karti hai.</li>
+                        <li>Automated Intent ke through YouTube app launch hota hai.</li>
+                        <li>Accessibility gesture se search box me query auto-type aur play hoti hai!</li>
+                    </ul>
+                `;
+            } else if (lower.includes('touch') || lower.includes('pointer') || lower.includes('screen')) {
+                return `
+                    <p class="font-bold text-auraGreen mb-2">🎯 Visual Screen Touch & Tap Indicator:</p>
+                    <p class="mb-2">Jab Julie aapke phone ki screen par koi action leti hai:</p>
+                    <ul class="space-y-1 list-disc list-inside text-xs sm:text-sm">
+                        <li>Screen par ek <strong>concentric glowing neon cyan & lime ring</strong> pulse karti hai.</li>
+                        <li>Exact touch coordinate badge dikhta hai: <code>🎯 Julie Tap (X, Y) • Action Name</code></li>
+                        <li>Aapko 100% visible rehta hai ki Julie kab aur kaha click kar rahi hai!</li>
+                    </ul>
+                `;
+            } else if (lower.includes('trending') || lower.includes('trend') || lower.includes('tool')) {
                 return `
                     <p class="font-bold text-auraGreen mb-2">🔥 Top Free Trending AI Tools (2026):</p>
                     <ul class="space-y-1.5 list-disc list-inside text-xs sm:text-sm">

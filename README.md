@@ -23,11 +23,20 @@ Aura AI is a modern native Android application (Kotlin + Jetpack Compose) and We
    * Modern glass cards, interactive prompt chips, and glowing cyber accents.
    * Real-time streaming response indicator.
 
-4. **🌐 Hindi + Hinglish + English Bilingual Voice Assistant**
-   * Voice commands with interruptible Text-to-Speech (TTS).
-   * Safe tools: dialer, alarms, app launcher, web search.
+4. **🌐 24h Background Voice & Wake Word ('Hey Julie' / 'हाय जुली')**
+   * Background Foreground Service keeps microphone active 24/7 without being killed by Android OS.
+   * Say **"Hey Julie open YouTube"**, **"Hey Julie call Papa"**, **"Hey Julie set alarm 7:00"**, or ask questions anytime hands-free.
+   * Interruptible dual-language Text-to-Speech (TTS) response.
 
-5. **📱 Live Screen Vision & Continuous OCR**
+5. **🎯 Visual Touch / Tap Pointer Indicator on Screen**
+   * Concentric glowing neon cyan & lime animated touch ring displays on screen whenever Julie taps or scrolls.
+   * Badge displays exact coordinates `🎯 Julie Tap (X, Y) • Action Name` so the user always sees where Julie touches.
+
+6. **💬 Floating Julie Chat Bubble & Notification Actions**
+   * Floating draggable orb on top of any app with expandable Mini Chat.
+   * Notification controls with **Chat Bubble**, **Capture Frame**, and **STOP** buttons.
+
+7. **📱 Live Screen Vision & Continuous OCR**
    * 1–3 FPS real-time screen sharing and visual reasoning with Julie Vision.
 
 ---
