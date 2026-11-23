@@ -8,8 +8,15 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.data.ai.AuraSwarmEngine
+import com.example.data.ai.OrchestrationMode
+import com.example.data.ai.RequestDiagnostics
+import com.example.data.ai.RoutingConfig
+import com.example.data.ai.RoutingProfile
 import com.example.data.ai.SwarmStepUpdate
+import com.example.data.ai.VendorPolicy
 import com.example.data.local.LocalAuraStore
+import com.example.data.local.MemoryNote
+import com.example.data.local.MemoryVaultStore
 import com.example.data.model.AiModelsCatalog
 import com.example.data.model.AssistantTask
 import com.example.data.model.ChatMessage
@@ -19,12 +26,23 @@ import com.example.data.model.TaskCategory
 import com.example.data.model.TaskPriority
 import com.example.data.model.TaskStatus
 import com.example.data.model.UserProfile
+import com.example.data.remote.ImageKitAsset
+import com.example.data.remote.ImageKitClient
+import com.example.data.remote.ImageKitConfig
+import com.example.data.remote.ModelHealthRecord
+import com.example.data.remote.MongoDbClient
+import com.example.data.remote.MongoDbConfig
+import com.example.data.remote.NimInferenceSettings
+import com.example.data.remote.NimKeyState
 import com.example.data.remote.NvidiaNimClient
 import com.example.data.repository.AuraDataSource
 import com.example.data.repository.AuraRepository
 import com.example.firebase.FirebaseRuntime
 import com.example.screen.ScreenCaptureState
 import com.example.screen.ScreenCaptureStore
+import com.example.tools.JulieToolRegistry
+import com.example.tools.PendingToolAction
+import com.example.tools.ToolActionLog
 import com.google.firebase.firestore.FirebaseFirestoreException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -58,6 +76,7 @@ data class LiveSwarmActivity(
     val progressPercent: Int = 0,
     val steps: List<String> = emptyList(),
     val streamingText: String = "",
+    val thinkingTrace: String = "",
     val parallelTasksRunning: Int = 0
 )
 
@@ -65,7 +84,9 @@ class AuraViewModel(
     application: Application,
     val isCloudSynced: Boolean,
     private val repository: AuraDataSource = if (isCloudSynced && FirebaseRuntime.isFirebaseConfigured(application)) {
-        AuraRepository(application.applicationContext)
+        runCatching { AuraRepository(application.applicationContext) }
+            .onFailure { Log.e(TAG, "Firestore repository init failed; falling back to local store", it) }
+            .getOrElse { LocalAuraStore(application.applicationContext) }
     } else {
         LocalAuraStore(application.applicationContext)
     },
@@ -74,6 +95,16 @@ class AuraViewModel(
 
     val screenCaptureState: StateFlow<ScreenCaptureState> = ScreenCaptureStore.state
     val isNvidiaNimConfiguredFlow: StateFlow<Boolean> = NvidiaNimClient.isConfiguredFlow
+    val nimKeyStateFlow: StateFlow<NimKeyState> = NvidiaNimClient.keyStateFlow
+    val nimSettingsFlow: StateFlow<NimInferenceSettings> = NvidiaNimClient.settingsFlow
+    val liveRemoteModelIdsFlow: StateFlow<List<String>> = NvidiaNimClient.liveRemoteModelIds
+    val modelHealthMapFlow: StateFlow<Map<String, ModelHealthRecord>> = NvidiaNimClient.healthMapFlow
+
+    val imageKitConfigFlow: StateFlow<ImageKitConfig> = ImageKitClient.configFlow
+    val imageKitAssetsFlow: StateFlow<List<ImageKitAsset>> = ImageKitClient.assetsFlow
+    val mongoConfigFlow: StateFlow<MongoDbConfig> = MongoDbClient.configFlow
+    val memoryNotesFlow: StateFlow<List<MemoryNote>> = MemoryVaultStore.notesFlow
+    val toolActionLogsFlow: StateFlow<List<ToolActionLog>> = JulieToolRegistry.actionLogs
 
     val userProfile: StateFlow<UserProfile> = repository.observeUserProfile()
         .catch { error ->
@@ -82,12 +113,12 @@ class AuraViewModel(
                 .firstOrNull()
             if (firestoreError == null && error is CancellationException) throw error
             Log.e(TAG, "Profile stream error: ${(firestoreError ?: error).message}")
-            emit(UserProfile(displayName = if (isCloudSynced) "Aura User" else "Guest Mode"))
+            emit(UserProfile(displayName = if (isCloudSynced) "Julie User" else "Guest Mode"))
         }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000L),
-            initialValue = UserProfile(displayName = if (isCloudSynced) "Aura User" else "Guest Mode")
+            initialValue = UserProfile(displayName = if (isCloudSynced) "Julie User" else "Guest Mode")
         )
 
     val tasksState: StateFlow<DataUiState<List<AssistantTask>>> = repository.observeTasks()
@@ -125,6 +156,15 @@ class AuraViewModel(
     private val _liveSwarm = MutableStateFlow(LiveSwarmActivity())
     val liveSwarm: StateFlow<LiveSwarmActivity> = _liveSwarm.asStateFlow()
 
+    private val _routingConfig = MutableStateFlow(RoutingConfig())
+    val routingConfig: StateFlow<RoutingConfig> = _routingConfig.asStateFlow()
+
+    private val _lastDiagnostics = MutableStateFlow<RequestDiagnostics?>(null)
+    val lastDiagnostics: StateFlow<RequestDiagnostics?> = _lastDiagnostics.asStateFlow()
+
+    private val _pendingToolConfirmation = MutableStateFlow<PendingToolAction?>(null)
+    val pendingToolConfirmation: StateFlow<PendingToolAction?> = _pendingToolConfirmation.asStateFlow()
+
     private val _bannerError = MutableStateFlow<String?>(null)
     val bannerError: StateFlow<String?> = _bannerError.asStateFlow()
 
@@ -137,8 +177,18 @@ class AuraViewModel(
     private val _isSplittingGoal = MutableStateFlow(false)
     val isSplittingGoal: StateFlow<Boolean> = _isSplittingGoal.asStateFlow()
 
+    private val _isUploadingImageKit = MutableStateFlow(false)
+    val isUploadingImageKit: StateFlow<Boolean> = _isUploadingImageKit.asStateFlow()
+
+    private val _isSyncingMongo = MutableStateFlow(false)
+    val isSyncingMongo: StateFlow<Boolean> = _isSyncingMongo.asStateFlow()
+
+    private val _isProbingModels = MutableStateFlow(false)
+    val isProbingModels: StateFlow<Boolean> = _isProbingModels.asStateFlow()
+
     private val parallelSemaphore = Semaphore(3)
     private var watchdogJob: Job? = null
+    private var activeChatJob: Job? = null
 
     val isNvidiaNimConfigured: Boolean
         get() = swarmEngine.isNvidiaNimDirectActive()
@@ -146,7 +196,7 @@ class AuraViewModel(
     init {
         viewModelScope.launch {
             val displayName = if (isCloudSynced) {
-                FirebaseRuntime.currentUserOrNull(application)?.displayName ?: "Aura User"
+                FirebaseRuntime.currentUserOrNull(application)?.displayName ?: "Julie User"
             } else {
                 "Guest Mode"
             }
@@ -163,15 +213,214 @@ class AuraViewModel(
         _infoNotice.value = null
     }
 
+    fun updateNimInferenceSettings(settings: NimInferenceSettings) {
+        NvidiaNimClient.updateSettings(getApplication(), settings)
+    }
+
+    fun updateRoutingConfig(
+        profile: RoutingProfile = _routingConfig.value.profile,
+        orchestrationMode: OrchestrationMode = _routingConfig.value.orchestrationMode,
+        vendorPolicy: VendorPolicy = _routingConfig.value.vendorPolicy,
+        managerEnabled: Boolean = _routingConfig.value.managerEnabled
+    ) {
+        _routingConfig.value = RoutingConfig(
+            profile = profile,
+            orchestrationMode = orchestrationMode,
+            vendorPolicy = vendorPolicy,
+            managerEnabled = managerEnabled
+        )
+    }
+
+    fun testNvidiaNimConnection(onResult: (String) -> Unit = {}) {
+        viewModelScope.launch {
+            val res = NvidiaNimClient.testConnectionAndFetchModels(getApplication())
+            onResult(res.message)
+            if (res.ok) _infoNotice.value = res.message else _bannerError.value = res.message
+        }
+    }
+
+    fun probeSingleModel(modelId: String) {
+        viewModelScope.launch {
+            _isProbingModels.value = true
+            try {
+                val rec = NvidiaNimClient.probeModel(getApplication(), modelId)
+                _infoNotice.value = "${modelId.substringAfterLast('/')}: ${rec.status.label} (${rec.lastErrorSummary})"
+            } finally {
+                _isProbingModels.value = false
+            }
+        }
+    }
+
+    fun probePrimaryNemotronFleet() {
+        if (_isProbingModels.value) return
+        viewModelScope.launch {
+            _isProbingModels.value = true
+            try {
+                val targets = listOf(
+                    "nvidia/nemotron-3-ultra-550b-a55b",
+                    "nvidia/nemotron-3-super-120b-a12b",
+                    "nvidia/nemotron-3.5-bolt-e4b",
+                    "nvidia/nemotron-3.5-lightning-30b-a3b",
+                    "nvidia/llama-3.3-nemotron-super-49b-v1",
+                    "nvidia/llama-3.1-nemotron-70b-instruct"
+                )
+                var verified = 0
+                for (id in targets) {
+                    val rec = NvidiaNimClient.probeModel(getApplication(), id)
+                    if (rec.status.name == "VERIFIED") verified++
+                    if (rec.lastErrorCode == 401) {
+                        _bannerError.value = "HTTP 401: Invalid API key. Stopping probe immediately."
+                        return@launch
+                    }
+                }
+                _infoNotice.value = "Live probe finished: $verified/${targets.size} Nemotron models verified on your key."
+            } finally {
+                _isProbingModels.value = false
+            }
+        }
+    }
+
+    fun setModelDisabled(modelId: String, disabled: Boolean) {
+        NvidiaNimClient.setModelDisabled(getApplication(), modelId, disabled)
+    }
+
+    // --- Memory Vault ---
+
+    fun addMemoryNote(title: String, content: String, pinned: Boolean = true) {
+        MemoryVaultStore.addNote(getApplication(), title, content, pinned)
+        _infoNotice.value = "Saved to on-device Memory Vault"
+    }
+
+    fun toggleMemoryPin(id: String) {
+        MemoryVaultStore.togglePin(getApplication(), id)
+    }
+
+    fun deleteMemoryNote(id: String) {
+        MemoryVaultStore.deleteNote(getApplication(), id)
+    }
+
+    fun clearMemoryVault() {
+        MemoryVaultStore.clearAll(getApplication())
+        _infoNotice.value = "Cleared Memory Vault"
+    }
+
+    // --- Safe Validated Android Tools ---
+
+    fun handleToolIntent(action: PendingToolAction) {
+        if (action.type.requiresConfirmation) {
+            _pendingToolConfirmation.value = action
+            return
+        }
+        executeValidatedTool(action)
+    }
+
+    fun confirmPendingTool() {
+        val action = _pendingToolConfirmation.value ?: return
+        _pendingToolConfirmation.value = null
+        executeValidatedTool(action)
+    }
+
+    fun dismissPendingTool() {
+        _pendingToolConfirmation.value = null
+    }
+
+    private fun executeValidatedTool(action: PendingToolAction) {
+        JulieToolRegistry.execute(getApplication(), action)
+            .onSuccess { detail -> _infoNotice.value = detail }
+            .onFailure { err -> _bannerError.value = err.localizedMessage ?: "Tool execution failed" }
+    }
+
+    // --- ImageKit Cloud Storage ---
+
+    fun uploadCurrentScreenToImageKit(label: String = "julie_screen") {
+        val bitmap = screenCaptureState.value.latestBitmap
+        if (bitmap == null) {
+            _bannerError.value = "Capture a screen frame or pick an image first."
+            return
+        }
+        uploadBitmapToImageKit(bitmap, label)
+    }
+
+    fun uploadBitmapToImageKit(bitmap: Bitmap, label: String = "julie_image") {
+        if (_isUploadingImageKit.value) return
+        viewModelScope.launch {
+            _isUploadingImageKit.value = true
+            try {
+                ImageKitClient.uploadBitmap(getApplication(), bitmap, label)
+                    .onSuccess { asset ->
+                        _infoNotice.value = "Uploaded to ImageKit: ${asset.name}"
+                        if (MongoDbClient.isConfigured() && MongoDbClient.configFlow.value.autoSyncEnabled) {
+                            MongoDbClient.insertMediaAsset(asset)
+                        }
+                    }
+                    .onFailure { err ->
+                        _bannerError.value = err.localizedMessage ?: "ImageKit upload failed"
+                    }
+            } finally {
+                _isUploadingImageKit.value = false
+            }
+        }
+    }
+
+    fun deleteImageKitAsset(fileId: String) {
+        viewModelScope.launch {
+            ImageKitClient.deleteAsset(getApplication(), fileId)
+                .onSuccess { _infoNotice.value = "Removed from ImageKit storage" }
+                .onFailure { _bannerError.value = it.localizedMessage ?: "Delete failed" }
+        }
+    }
+
+    fun testImageKitConnection(onResult: (String) -> Unit = {}) {
+        viewModelScope.launch {
+            val res = ImageKitClient.testConnection()
+            onResult(res.message)
+            if (res.ok) _infoNotice.value = res.message else _bannerError.value = res.message
+        }
+    }
+
+    // --- MongoDB Cloud Connection ---
+
+    fun testMongoDbConnection(onResult: (String) -> Unit = {}) {
+        viewModelScope.launch {
+            val res = MongoDbClient.testConnection()
+            onResult(res.message)
+            if (res.ok) _infoNotice.value = res.message else _bannerError.value = res.message
+        }
+    }
+
+    fun syncAllToMongoDbNow(onResult: (String) -> Unit = {}) {
+        if (_isSyncingMongo.value) return
+        viewModelScope.launch {
+            _isSyncingMongo.value = true
+            try {
+                val tasks = (tasksState.value as? DataUiState.Success)?.data.orEmpty()
+                val messages = (messagesState.value as? DataUiState.Success)?.data.orEmpty()
+                val assets = imageKitAssetsFlow.value
+                val res = MongoDbClient.syncSnapshotNow(
+                    context = getApplication(),
+                    tasks = tasks,
+                    messages = messages,
+                    assets = assets
+                )
+                onResult(res.message)
+                if (res.ok) _infoNotice.value = res.message else _bannerError.value = res.message
+            } finally {
+                _isSyncingMongo.value = false
+            }
+        }
+    }
+
+    // --- 24h Watchdog ---
+
     fun toggleWatchdog24h(enabled: Boolean) {
         _isWatchdog24hActive.value = enabled
         if (enabled) {
             start24hWatchdogLoop()
-            _infoNotice.value = "24/7 Autonomous Task Engine armed"
+            _infoNotice.value = "Autonomous task runner armed (foreground/active session)"
         } else {
             watchdogJob?.cancel()
             watchdogJob = null
-            _infoNotice.value = "24/7 Autonomous Engine paused"
+            _infoNotice.value = "Autonomous task runner paused"
         }
     }
 
@@ -180,6 +429,7 @@ class AuraViewModel(
         watchdogJob = viewModelScope.launch {
             while (isActive && _isWatchdog24hActive.value) {
                 delay(15_000L)
+                if (!NvidiaNimClient.isConfigured()) continue
                 val currentTasks = (tasksState.value as? DataUiState.Success)?.data.orEmpty()
                 val autoQueued = currentTasks.filter {
                     it.statusEnum() == TaskStatus.QUEUED &&
@@ -224,7 +474,19 @@ class AuraViewModel(
         }
     }
 
-    // --- Live Chat + Google Search + Screen Vision ---
+    // --- Live Single-Flight NVIDIA NIM Chat + Web Research + Vision ---
+
+    fun cancelActiveChatRequest() {
+        activeChatJob?.cancel()
+        activeChatJob = null
+        _liveSwarm.value = _liveSwarm.value.copy(
+            isRunning = false,
+            streamingText = "",
+            thinkingTrace = "",
+            progressPercent = 0
+        )
+        _infoNotice.value = "Cancelled active generation"
+    }
 
     fun sendChatPrompt(
         prompt: String,
@@ -238,12 +500,22 @@ class AuraViewModel(
         val useSearch = forceGoogleSearch ?: profile.autoSearchEnabled
         val screenBitmap: Bitmap? = if (includeAttachedScreen) screenCaptureState.value.latestBitmap else null
 
-        val recentContext = (messagesState.value as? DataUiState.Success)?.data
+        val pinnedMemories = MemoryVaultStore.pinnedSummaryContext()
+        val recentHistory = (messagesState.value as? DataUiState.Success)?.data
             ?.takeLast(6)
             ?.joinToString("\n") { "${it.role}: ${it.content.take(400)}" }
             .orEmpty()
+        val recentContext = buildString {
+            if (pinnedMemories.isNotBlank()) {
+                append("Pinned User Memory Vault:\n$pinnedMemories\n\n")
+            }
+            if (recentHistory.isNotBlank()) {
+                append(recentHistory)
+            }
+        }
 
-        viewModelScope.launch {
+        activeChatJob?.cancel()
+        activeChatJob = viewModelScope.launch {
             _bannerError.value = null
             repository.addMessage(
                 role = MessageRole.USER,
@@ -255,16 +527,15 @@ class AuraViewModel(
 
             _liveSwarm.value = LiveSwarmActivity(
                 isRunning = true,
-                activeModelName = if (profile.swarmEnabled) "Aura Swarm Router" else "Aura AI",
+                activeModelName = "Julie Nemotron Router",
                 stageLabel = if (screenBitmap != null) {
-                    "Analyzing shared screen frame..."
-                } else if (useSearch) {
-                    "Routing 33-model swarm + Google Search..."
+                    "Analyzing live screen via NVIDIA Vision..."
                 } else {
-                    "Dispatching best models..."
+                    "Routing request (single-flight lock active)..."
                 },
                 progressPercent = 12,
-                streamingText = ""
+                streamingText = "",
+                thinkingTrace = ""
             )
 
             try {
@@ -276,6 +547,8 @@ class AuraViewModel(
                     maxPowerEnabled = profile.maxPowerEnabled,
                     useGoogleSearch = useSearch,
                     attachedBitmap = screenBitmap,
+                    routingConfig = _routingConfig.value,
+                    useSingleFlightLock = true,
                     onStageUpdate = { update: SwarmStepUpdate ->
                         _liveSwarm.value = _liveSwarm.value.copy(
                             activeModelName = update.activeModelName,
@@ -284,14 +557,25 @@ class AuraViewModel(
                             steps = update.completedSteps
                         )
                     },
+                    onThinkingToken = { partialThink ->
+                        _liveSwarm.value = _liveSwarm.value.copy(thinkingTrace = partialThink)
+                    },
                     onStreamToken = { partialText ->
                         _liveSwarm.value = _liveSwarm.value.copy(streamingText = partialText)
                     }
                 )
 
+                _lastDiagnostics.value = result.diagnostics
+
+                val storedContent = if (result.reasoningTrace.isNotBlank()) {
+                    "Thinking Summary:\n${result.reasoningTrace.take(800)}\n\n${result.finalText}"
+                } else {
+                    result.finalText
+                }
+
                 repository.addMessage(
                     role = MessageRole.ASSISTANT,
-                    content = result.finalText,
+                    content = storedContent,
                     modelUsed = result.primaryEngineLabel,
                     swarmModels = result.collaboratingModels,
                     searchSources = result.searchSources,
@@ -299,15 +583,30 @@ class AuraViewModel(
                     hasScreenContext = screenBitmap != null
                 )
                 repository.incrementSwarmRuns()
+
+                if (MongoDbClient.isConfigured() && MongoDbClient.configFlow.value.autoSyncEnabled) {
+                    MongoDbClient.insertMessage(
+                        ChatMessage(
+                            id = "msg_${System.currentTimeMillis()}",
+                            role = MessageRole.ASSISTANT.name,
+                            content = storedContent,
+                            modelUsed = result.primaryEngineLabel,
+                            swarmModels = result.collaboratingModels,
+                            usedWebSearch = result.usedWebSearch,
+                            hasScreenContext = screenBitmap != null
+                        )
+                    )
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.e(TAG, "Chat swarm execution failed", e)
-                _bannerError.value = e.localizedMessage ?: "AI execution failed. Please try again."
+                Log.e(TAG, "Chat execution failed", e)
+                _bannerError.value = e.localizedMessage ?: "NVIDIA NIM execution failed. Check 33 Models diagnostics."
             } finally {
                 _liveSwarm.value = _liveSwarm.value.copy(
                     isRunning = false,
                     streamingText = "",
+                    thinkingTrace = "",
                     progressPercent = 0
                 )
             }
@@ -324,7 +623,7 @@ class AuraViewModel(
         }
     }
 
-    // --- 24/7 Autonomous Multi-Task Execution ---
+    // --- Autonomous Multi-Task Execution ---
 
     fun createTask(
         title: String,
@@ -358,20 +657,23 @@ class AuraViewModel(
                 assignedModels = recommended
             )
             result.onSuccess { newId ->
+                val newTask = AssistantTask(
+                    id = newId,
+                    title = cleanTitle,
+                    prompt = cleanPrompt,
+                    category = category.name,
+                    priority = priority.name,
+                    status = TaskStatus.QUEUED.name,
+                    scheduleMode = scheduleMode.name,
+                    assignedModels = recommended
+                )
+                if (MongoDbClient.isConfigured() && MongoDbClient.configFlow.value.autoSyncEnabled) {
+                    MongoDbClient.upsertTask(newTask)
+                }
                 if (runImmediately) {
-                    val tempTask = AssistantTask(
-                        id = newId,
-                        title = cleanTitle,
-                        prompt = cleanPrompt,
-                        category = category.name,
-                        priority = priority.name,
-                        status = TaskStatus.QUEUED.name,
-                        scheduleMode = scheduleMode.name,
-                        assignedModels = recommended
-                    )
-                    executeSingleTask(tempTask)
+                    executeSingleTask(newTask)
                 } else {
-                    _infoNotice.value = "Task queued for Aura 24h Swarm"
+                    _infoNotice.value = "Task queued for Julie NVIDIA Swarm"
                 }
             }.onFailure {
                 _bannerError.value = it.localizedMessage ?: "Failed to create task"
@@ -409,21 +711,23 @@ class AuraViewModel(
                         assignedModels = models
                     )
                     created.onSuccess { id ->
-                        createdTasks.add(
-                            AssistantTask(
-                                id = id,
-                                title = item.title,
-                                prompt = item.prompt,
-                                category = cat.name,
-                                priority = prio.name,
-                                status = TaskStatus.QUEUED.name,
-                                scheduleMode = ScheduleMode.ONCE.name,
-                                assignedModels = models
-                            )
+                        val t = AssistantTask(
+                            id = id,
+                            title = item.title,
+                            prompt = item.prompt,
+                            category = cat.name,
+                            priority = prio.name,
+                            status = TaskStatus.QUEUED.name,
+                            scheduleMode = ScheduleMode.ONCE.name,
+                            assignedModels = models
                         )
+                        createdTasks.add(t)
+                        if (MongoDbClient.isConfigured() && MongoDbClient.configFlow.value.autoSyncEnabled) {
+                            MongoDbClient.upsertTask(t)
+                        }
                     }
                 }
-                _infoNotice.value = "AI created ${createdTasks.size} parallel tasks"
+                _infoNotice.value = "Julie created ${createdTasks.size} parallel tasks"
                 if (autoExecute && createdTasks.isNotEmpty()) {
                     runMultipleTasksInParallel(createdTasks)
                 }
@@ -502,11 +806,11 @@ class AuraViewModel(
         val activeCount = _liveSwarm.value.parallelTasksRunning + 1
         _liveSwarm.value = _liveSwarm.value.copy(
             parallelTasksRunning = activeCount,
-            activeModelName = task.assignedModels.firstOrNull() ?: "Aura Swarm",
-            stageLabel = "Running ${activeCount} autonomous task${if (activeCount > 1) "s" else ""}..."
+            activeModelName = task.assignedModels.firstOrNull() ?: "Julie Nemotron",
+            stageLabel = "Running $activeCount autonomous task${if (activeCount > 1) "s" else ""}..."
         )
 
-        val steps = mutableListOf("Swarm activated for \"${task.title}\"")
+        val steps = mutableListOf("Julie Nemotron activated for \"${task.title}\"")
         repository.updateTaskExecution(
             taskId = task.id,
             status = TaskStatus.RUNNING,
@@ -524,6 +828,8 @@ class AuraViewModel(
                 swarmEnabled = profile.swarmEnabled,
                 maxPowerEnabled = profile.maxPowerEnabled,
                 useGoogleSearch = useSearch,
+                routingConfig = _routingConfig.value,
+                useSingleFlightLock = false,
                 onStageUpdate = { update ->
                     viewModelScope.launch {
                         if (update.progressPercent in 25..90) {
@@ -550,6 +856,16 @@ class AuraViewModel(
                 progressPercent = 100
             )
             repository.incrementSwarmRuns()
+            if (MongoDbClient.isConfigured() && MongoDbClient.configFlow.value.autoSyncEnabled) {
+                MongoDbClient.upsertTask(
+                    task.copy(
+                        status = TaskStatus.COMPLETED.name,
+                        assignedModels = result.collaboratingModels,
+                        resultText = result.finalText,
+                        progressPercent = 100L
+                    )
+                )
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

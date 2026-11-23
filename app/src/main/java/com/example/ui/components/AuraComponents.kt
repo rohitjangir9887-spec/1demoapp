@@ -87,12 +87,13 @@ fun DynamicIslandCapsule(
     isScreenSharing: Boolean,
     isWatchdog24hActive: Boolean,
     modelCount: Int = 33,
+    liveScreenFrames: Long = 0L,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val isExpanded = liveSwarm.isRunning || liveSwarm.parallelTasksRunning > 0 || isScreenSharing
     val capsuleWidth by animateDpAsState(
-        targetValue = if (isExpanded) 316.dp else 214.dp,
+        targetValue = if (isExpanded) 316.dp else 224.dp,
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioMediumBouncy,
             stiffness = Spring.StiffnessMediumLow
@@ -157,11 +158,11 @@ fun DynamicIslandCapsule(
                 Spacer(Modifier.width(9.dp))
                 AnimatedContent(
                     targetState = when {
-                        isScreenSharing -> "LIVE SCREEN VISION"
-                        liveSwarm.isRunning -> liveSwarm.activeModelName.ifBlank { "Swarm Thinking..." }
+                        isScreenSharing -> "LIVE SCREEN • #$liveScreenFrames"
+                        liveSwarm.isRunning -> liveSwarm.activeModelName.ifBlank { "Julie Thinking..." }
                         liveSwarm.parallelTasksRunning > 0 -> "${liveSwarm.parallelTasksRunning} Tasks Running"
-                        isWatchdog24hActive -> "24h Ready • $modelCount Models"
-                        else -> "Aura Standby"
+                        isWatchdog24hActive -> "Julie • NVIDIA NIM ($modelCount)"
+                        else -> "Julie Standby"
                     },
                     transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(150)) },
                     label = "islandText"
@@ -334,27 +335,30 @@ fun AmbientAuraBackground(
     Canvas(modifier = modifier.fillMaxSize()) {
         val w = size.width
         val h = size.height
+        if (w <= 1f || h <= 1f) return@Canvas
         val x1 = w * (0.28f + 0.16f * cos(phase))
         val y1 = h * (0.14f + 0.06f * sin(phase))
         val x2 = w * (0.78f + 0.14f * sin(phase * 0.8f))
         val y2 = h * (0.34f + 0.08f * cos(phase * 0.8f))
+        val r1 = (w * 0.68f).coerceAtLeast(1f)
+        val r2 = (w * 0.56f).coerceAtLeast(1f)
 
         drawCircle(
             brush = Brush.radialGradient(
                 colors = listOf(primaryGlow.copy(alpha = 0.14f), Color.Transparent),
                 center = Offset(x1, y1),
-                radius = w * 0.68f
+                radius = r1
             ),
-            radius = w * 0.68f,
+            radius = r1,
             center = Offset(x1, y1)
         )
         drawCircle(
             brush = Brush.radialGradient(
                 colors = listOf(secondaryGlow.copy(alpha = 0.09f), Color.Transparent),
                 center = Offset(x2, y2),
-                radius = w * 0.56f
+                radius = r2
             ),
-            radius = w * 0.56f,
+            radius = r2,
             center = Offset(x2, y2)
         )
     }

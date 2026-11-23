@@ -118,11 +118,11 @@ jobs:
               -dname "CN=Android Debug,O=Android,C=US"
           fi
 
-      - name: Build installable APK and save diagnostics
+      - name: Run unit tests and build installable APK
         id: build
         run: |
           set +e
-          gradle --no-daemon --stacktrace :app:assembleDebug > build-output.log 2>&1
+          gradle --no-daemon --stacktrace :app:testDebugUnitTest :app:assembleDebug > build-output.log 2>&1
           result=$?
           tail -n 90 build-output.log
           exit $result

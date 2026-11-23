@@ -28,7 +28,7 @@ object FirebaseRuntime {
                 projectId != CI_PLACEHOLDER_PROJECT_ID &&
                 apiKey.isNotBlank() &&
                 apiKey != "ci-local-api-key"
-        } catch (_: Exception) {
+        } catch (_: Throwable) {
             false
         }
     }
@@ -37,7 +37,7 @@ object FirebaseRuntime {
         if (!isFirebaseConfigured(context)) return null
         return try {
             Firebase.auth
-        } catch (_: Exception) {
+        } catch (_: Throwable) {
             null
         }
     }

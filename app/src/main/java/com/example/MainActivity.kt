@@ -2,6 +2,7 @@ package com.example
 
 import android.app.Application
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
@@ -70,10 +71,14 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.auth.signOutUser
 import com.example.data.local.LocalAuraStore
+import com.example.data.local.MemoryVaultStore
+import com.example.data.model.AiModelsCatalog
 import com.example.data.model.ScheduleMode
 import com.example.data.model.TaskCategory
 import com.example.data.model.TaskPriority
 import com.example.data.model.TaskStatus
+import com.example.data.remote.ImageKitClient
+import com.example.data.remote.MongoDbClient
 import com.example.data.remote.NvidiaNimClient
 import com.example.firebase.FirebaseRuntime
 import com.example.firebase.configureAppCheck
@@ -105,10 +110,10 @@ enum class AuraTab(
     val unselectedIcon: ImageVector,
     val accent: Color
 ) {
-    CHAT("chat", "Chat", Icons.Rounded.ChatBubble, Icons.Outlined.ChatBubbleOutline, AuraBlue),
+    CHAT("chat", "Julie", Icons.Rounded.ChatBubble, Icons.Outlined.ChatBubbleOutline, AuraBlue),
     TASKS("tasks", "24h Tasks", Icons.Rounded.TaskAlt, Icons.Outlined.TaskAlt, AuraNimGreen),
-    MODELS("models", "33 Models", Icons.Rounded.Hub, Icons.Outlined.Hub, AuraCyan),
-    SCREEN("screen", "Screen", Icons.Rounded.ScreenShare, Icons.Outlined.ScreenShare, AuraCoral)
+    MODELS("models", "NIM Models", Icons.Rounded.Hub, Icons.Outlined.Hub, AuraCyan),
+    SCREEN("screen", "Hub", Icons.Rounded.ScreenShare, Icons.Outlined.ScreenShare, AuraCoral)
 }
 
 class MainActivity : ComponentActivity() {
@@ -116,15 +121,25 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         // STEP 1 (MANDATORY): Configure Firebase App Check with launch intent before UI/ViewModels
-        configureAppCheck(this, intent)
+        runCatching { configureAppCheck(this, intent) }
+            .onFailure { Log.e("MainActivity", "AppCheck startup warning", it) }
 
-        // Load the user's locally encrypted NVIDIA key before constructing any AI ViewModels.
-        NvidiaNimClient.initialize(applicationContext)
+        // Load locally encrypted NVIDIA NIM, ImageKit, MongoDB configs & Memory Vault safely
+        runCatching { NvidiaNimClient.initialize(applicationContext) }
+            .onFailure { Log.e("MainActivity", "NvidiaNimClient init warning", it) }
+        runCatching { ImageKitClient.initialize(applicationContext) }
+            .onFailure { Log.e("MainActivity", "ImageKitClient init warning", it) }
+        runCatching { MongoDbClient.initialize(applicationContext) }
+            .onFailure { Log.e("MainActivity", "MongoDbClient init warning", it) }
+        runCatching { MemoryVaultStore.initialize(applicationContext) }
+            .onFailure { Log.e("MainActivity", "MemoryVaultStore init warning", it) }
 
-        enableEdgeToEdge(
-            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
-            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
-        )
+        runCatching {
+            enableEdgeToEdge(
+                statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+                navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+            )
+        }
 
         setContent {
             AuraAiTheme {
@@ -197,7 +212,6 @@ private fun AuraMainShell(
         }
     )
     val scope = rememberCoroutineScope()
-    val credentialManager = remember(context) { CredentialManager.create(context) }
 
     val profile by viewModel.userProfile.collectAsStateWithLifecycle()
     val tasksState by viewModel.tasksState.collectAsStateWithLifecycle()
@@ -206,14 +220,26 @@ private fun AuraMainShell(
     val screenState by viewModel.screenCaptureState.collectAsStateWithLifecycle()
     val isWatchdogActive by viewModel.isWatchdog24hActive.collectAsStateWithLifecycle()
     val isSplittingGoal by viewModel.isSplittingGoal.collectAsStateWithLifecycle()
-    val isNvidiaNimConfigured by viewModel.isNvidiaNimConfiguredFlow.collectAsStateWithLifecycle()
+    val nimKeyState by viewModel.nimKeyStateFlow.collectAsStateWithLifecycle()
+    val nimSettings by viewModel.nimSettingsFlow.collectAsStateWithLifecycle()
+    val routingConfig by viewModel.routingConfig.collectAsStateWithLifecycle()
+    val modelHealthMap by viewModel.modelHealthMapFlow.collectAsStateWithLifecycle()
+    val lastDiagnostics by viewModel.lastDiagnostics.collectAsStateWithLifecycle()
+    val isProbingModels by viewModel.isProbingModels.collectAsStateWithLifecycle()
+    val pendingToolConfirmation by viewModel.pendingToolConfirmation.collectAsStateWithLifecycle()
+    val imageKitConfig by viewModel.imageKitConfigFlow.collectAsStateWithLifecycle()
+    val imageKitAssets by viewModel.imageKitAssetsFlow.collectAsStateWithLifecycle()
+    val isUploadingImageKit by viewModel.isUploadingImageKit.collectAsStateWithLifecycle()
+    val mongoConfig by viewModel.mongoConfigFlow.collectAsStateWithLifecycle()
+    val isSyncingMongo by viewModel.isSyncingMongo.collectAsStateWithLifecycle()
+    val memoryNotes by viewModel.memoryNotesFlow.collectAsStateWithLifecycle()
+    val toolActionLogs by viewModel.toolActionLogsFlow.collectAsStateWithLifecycle()
     val bannerError by viewModel.bannerError.collectAsStateWithLifecycle()
     val infoNotice by viewModel.infoNotice.collectAsStateWithLifecycle()
 
     var selectedTab by rememberSaveable { mutableStateOf(AuraTab.CHAT) }
     val snackbarHostState = remember { SnackbarHostState() }
 
-    // BackHandler returns to home CHAT tab from any secondary tab
     BackHandler(enabled = selectedTab != AuraTab.CHAT) {
         selectedTab = AuraTab.CHAT
     }
@@ -289,7 +315,6 @@ private fun AuraMainShell(
                         .fillMaxHeight()
                         .statusBarsPadding()
                 ) {
-                    // Dynamic Island Live Capsule at top center
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -300,6 +325,8 @@ private fun AuraMainShell(
                             liveSwarm = liveSwarm,
                             isScreenSharing = screenState.isSharingActive,
                             isWatchdog24hActive = isWatchdogActive,
+                            modelCount = AiModelsCatalog.allModels.size,
+                            liveScreenFrames = screenState.frameCount,
                             onClick = {
                                 selectedTab = when {
                                     screenState.isSharingActive -> AuraTab.SCREEN
@@ -311,7 +338,6 @@ private fun AuraMainShell(
                         )
                     }
 
-                    // Active Tab Content with smooth crossfade
                     Box(modifier = Modifier.weight(1f)) {
                         AnimatedContent(
                             targetState = selectedTab,
@@ -323,11 +349,15 @@ private fun AuraMainShell(
                                     messagesState = messagesState,
                                     profile = profile,
                                     liveSwarm = liveSwarm,
+                                    routingConfig = routingConfig,
+                                    lastDiagnostics = lastDiagnostics,
+                                    pendingToolConfirmation = pendingToolConfirmation,
                                     screenCaptureState = screenState,
                                     isCloudSynced = isSignedIn,
                                     onSendPrompt = { prompt, useSearch, attachScreen ->
                                         viewModel.sendChatPrompt(prompt, useSearch, attachScreen)
                                     },
+                                    onCancelGeneration = { viewModel.cancelActiveChatRequest() },
                                     onInitiateVoiceTask = { title, prompt ->
                                         viewModel.createTask(
                                             title = title,
@@ -339,6 +369,9 @@ private fun AuraMainShell(
                                         )
                                         selectedTab = AuraTab.TASKS
                                     },
+                                    onTriggerToolIntent = { viewModel.handleToolIntent(it) },
+                                    onConfirmPendingTool = { viewModel.confirmPendingTool() },
+                                    onDismissPendingTool = { viewModel.dismissPendingTool() },
                                     onToggleSwarm = { enabled ->
                                         viewModel.updateSwarmSettings(swarmEnabled = enabled)
                                     },
@@ -370,10 +403,25 @@ private fun AuraMainShell(
 
                                 AuraTab.MODELS -> ModelsScreen(
                                     profile = profile,
-                                    isNvidiaNimConfigured = isNvidiaNimConfigured,
+                                    keyState = nimKeyState,
+                                    nimSettings = nimSettings,
+                                    routingConfig = routingConfig,
+                                    modelHealthMap = modelHealthMap,
+                                    lastDiagnostics = lastDiagnostics,
+                                    isProbingModels = isProbingModels,
                                     onSelectModel = { viewModel.selectModel(it) },
                                     onUpdateSettings = { swarm, maxPwr, search ->
                                         viewModel.updateSwarmSettings(swarm, maxPwr, search)
+                                    },
+                                    onUpdateNimSettings = { viewModel.updateNimInferenceSettings(it) },
+                                    onUpdateRoutingConfig = { p, o, v, m ->
+                                        viewModel.updateRoutingConfig(p, o, v, m)
+                                    },
+                                    onTestConnection = { viewModel.testNvidiaNimConnection() },
+                                    onProbePrimaryFleet = { viewModel.probePrimaryNemotronFleet() },
+                                    onProbeSingleModel = { viewModel.probeSingleModel(it) },
+                                    onToggleModelDisabled = { id, disabled ->
+                                        viewModel.setModelDisabled(id, disabled)
                                     }
                                 )
 
@@ -383,6 +431,13 @@ private fun AuraMainShell(
                                     isSignedIn = isSignedIn,
                                     userEmail = userEmail,
                                     completedTaskCount = completedTasksCount,
+                                    imageKitConfig = imageKitConfig,
+                                    imageKitAssets = imageKitAssets,
+                                    isUploadingImageKit = isUploadingImageKit,
+                                    mongoConfig = mongoConfig,
+                                    isSyncingMongo = isSyncingMongo,
+                                    memoryNotes = memoryNotes,
+                                    toolActionLogs = toolActionLogs,
                                     onAnalyzeScreenInChat = { question ->
                                         selectedTab = AuraTab.CHAT
                                         viewModel.sendChatPrompt(
@@ -391,16 +446,26 @@ private fun AuraMainShell(
                                             includeAttachedScreen = true
                                         )
                                     },
+                                    onUploadScreenToImageKit = { viewModel.uploadCurrentScreenToImageKit() },
+                                    onTestImageKit = { viewModel.testImageKitConnection() },
+                                    onDeleteImageKitAsset = { viewModel.deleteImageKitAsset(it) },
+                                    onTestMongo = { viewModel.testMongoDbConnection() },
+                                    onSyncMongoNow = { viewModel.syncAllToMongoDbNow() },
+                                    onAddMemoryNote = { title, content -> viewModel.addMemoryNote(title, content) },
+                                    onToggleMemoryPin = { viewModel.toggleMemoryPin(it) },
+                                    onDeleteMemoryNote = { viewModel.deleteMemoryNote(it) },
+                                    onClearMemoryVault = { viewModel.clearMemoryVault() },
                                     onSignInClick = onRequestSignIn,
                                     onSignOut = {
-                                        signOutUser(context, credentialManager, scope)
+                                        runCatching {
+                                            signOutUser(context, CredentialManager.create(context), scope)
+                                        }.onFailure { Log.e("MainActivity", "Sign out warning", it) }
                                     }
                                 )
                             }
                         }
                     }
 
-                    // Frosted Floating iOS Glass Dock (compact handheld screens)
                     if (!isExpandedScreen) {
                         IosFloatingGlassDock(
                             selectedTab = selectedTab,

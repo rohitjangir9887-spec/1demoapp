@@ -1,15 +1,16 @@
 <resources>
-    <string name="app_name">Aura AI</string>
+    <string name="app_name">Julie AI</string>
     <string name="mic_permission_title">Microphone Access Required</string>
-    <string name="mic_permission_rationale">Allow microphone access to dictate messages and start tasks hands-free with your voice.</string>
+    <string name="mic_permission_rationale">Allow microphone access to talk to Julie in Hindi, Hinglish, or English and start tasks hands-free.</string>
     <string name="mic_permission_denied_permanent">Microphone permission was denied. Enable it in App Settings to use hands-free voice input.</string>
     <string name="mic_grant_access">Allow Mic</string>
     <string name="mic_open_settings">Open Settings</string>
-    <string name="voice_listening_hint">Listening… Ask anything or say \"Create task …\"</string>
+    <string name="voice_listening_hint">Listening… Say \"Hey Julie\", \"YouTube खोलो\", or \"Create task …\"</string>
     <string name="voice_hands_free_on">Hands-Free ON</string>
     <string name="voice_hands_free_off">Dictate Only</string>
     <string name="voice_start_desc">Start voice-to-text input</string>
     <string name="voice_stop_desc">Stop voice listening</string>
     <string name="auth_continue_guest">Continue without Login (Guest Mode)</string>
-    <string name="auth_optional_hint">Login is optional. Guest Mode saves chats &amp; 24h tasks on your device; Sign in with Google anytime to sync across devices.</string>
+    <string name="auth_optional_hint">Login is optional. Guest Mode saves chats &amp; tasks on your device; Sign in with Google anytime for cloud sync.</string>
+    <string name="julie_accessibility_desc">Optional Julie AI Screen Assistant: reads non-sensitive visible UI labels and performs user-approved tap, scroll, and text gestures with a visible AI pointer and instant STOP. Never reads password fields or bypasses the lockscreen.</string>
 </resources>

@@ -194,12 +194,12 @@ fun AuthScreen(
                             Spacer(Modifier.width(14.dp))
                             Column {
                                 Text(
-                                    text = "Aura AI",
+                                    text = "Julie AI • जुली",
                                     style = MaterialTheme.typography.headlineMedium,
                                     color = PearlWhite
                                 )
                                 Text(
-                                    text = "24/7 Autonomous Multi-Model OS",
+                                    text = "Pro Android Agent • Pure NVIDIA NIM",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = AuraCyan
                                 )
@@ -216,14 +216,14 @@ fun AuthScreen(
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
-                            text = "33 Models Working Together.\nOne Seamless Assistant.",
+                            text = "Nemotron-First Intelligence.\nOne Seamless Assistant.",
                             style = MaterialTheme.typography.headlineMedium,
                             color = PearlWhite,
                             textAlign = TextAlign.Center
                         )
                         Spacer(Modifier.height(10.dp))
                         Text(
-                            text = "NVIDIA NIM + Gemini AI Logic collaborate automatically at max power for 24h parallel tasks, live Google Search, and real-time screen sharing.",
+                            text = "Pure NVIDIA NIM orchestration with live continuous screen share, Hindi & English voice tools, ImageKit cloud storage, and MongoDB sync.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = SlateMist,
                             textAlign = TextAlign.Center
@@ -239,8 +239,8 @@ fun AuthScreen(
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     FeatureSquircleTile(
-                        title = "33-Model Swarm",
-                        subtitle = "NVIDIA NIM & Gemini",
+                        title = "Nemotron Router",
+                        subtitle = "Pure NVIDIA NIM",
                         icon = Icons.Rounded.Hub,
                         gradStart = AuraNimGreen,
                         gradEnd = AuraMint,

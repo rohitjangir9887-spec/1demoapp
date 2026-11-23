@@ -2,6 +2,9 @@ package com.example.ui.screens
 
 import android.Manifest
 import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -18,8 +21,6 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
-import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -50,20 +51,26 @@ import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Code
+import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Hearing
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.OpenInNew
+import androidx.compose.material.icons.rounded.Psychology
 import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.ScreenShare
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.TaskAlt
+import androidx.compose.material.icons.rounded.Translate
 import androidx.compose.material.icons.rounded.VolumeUp
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
@@ -90,13 +97,18 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.R
+import com.example.data.ai.RequestDiagnostics
+import com.example.data.ai.RoutingConfig
 import com.example.data.model.ChatMessage
 import com.example.data.model.MessageRole
 import com.example.data.model.UserProfile
 import com.example.screen.ScreenCaptureState
 import com.example.screen.ScreenCaptureStore
+import com.example.tools.PendingToolAction
 import com.example.ui.components.GlassCard
 import com.example.ui.components.GlassChip
 import com.example.ui.components.IosSquircleIcon
@@ -104,8 +116,6 @@ import com.example.ui.components.LiveSwarmPipelineBanner
 import com.example.ui.components.MicrophonePermissionBanner
 import com.example.ui.components.VoiceErrorPill
 import com.example.ui.components.VoiceListeningPanel
-import com.example.voice.VoiceCommandResult
-import com.example.voice.VoiceInputController
 import com.example.ui.theme.AuraAmber
 import com.example.ui.theme.AuraBlue
 import com.example.ui.theme.AuraCoral
@@ -120,6 +130,8 @@ import com.example.ui.theme.PearlWhite
 import com.example.ui.theme.SlateMist
 import com.example.ui.viewmodel.DataUiState
 import com.example.ui.viewmodel.LiveSwarmActivity
+import com.example.voice.VoiceCommandResult
+import com.example.voice.VoiceInputController
 import java.util.Locale
 
 @Composable
@@ -127,9 +139,16 @@ fun ChatScreen(
     messagesState: DataUiState<List<ChatMessage>>,
     profile: UserProfile,
     liveSwarm: LiveSwarmActivity,
+    routingConfig: RoutingConfig,
+    lastDiagnostics: RequestDiagnostics?,
+    pendingToolConfirmation: PendingToolAction?,
     screenCaptureState: ScreenCaptureState,
     onSendPrompt: (prompt: String, useSearch: Boolean, attachScreen: Boolean) -> Unit,
+    onCancelGeneration: () -> Unit,
     onInitiateVoiceTask: (title: String, prompt: String) -> Unit,
+    onTriggerToolIntent: (PendingToolAction) -> Unit,
+    onConfirmPendingTool: () -> Unit,
+    onDismissPendingTool: () -> Unit,
     onToggleSwarm: (Boolean) -> Unit,
     onToggleSearch: (Boolean) -> Unit,
     onOpenScreenShareTab: () -> Unit,
@@ -140,11 +159,11 @@ fun ChatScreen(
     val context = LocalContext.current
     var inputText by remember { mutableStateOf("") }
     var handsFreeAutoSend by remember { mutableStateOf(true) }
+    var useHindiVoice by remember { mutableStateOf(false) }
     var attachScreenEnabled by remember(screenCaptureState.latestBitmap) {
         mutableStateOf(screenCaptureState.latestBitmap != null)
     }
 
-    // Runtime RECORD_AUDIO permission state
     var hasMicPermission by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(
@@ -156,23 +175,46 @@ fun ChatScreen(
     var showMicPermissionBanner by remember { mutableStateOf(false) }
     var isMicPermanentlyDenied by remember { mutableStateOf(false) }
 
-    // Text-to-Speech engine for reading assistant replies aloud
+    // Interruptible Text-to-Speech engine with Hindi/English locale support & sentence chunking
     var ttsEngine by remember { mutableStateOf<TextToSpeech?>(null) }
     DisposableEffect(context) {
         var engine: TextToSpeech? = null
-        engine = TextToSpeech(context) { status ->
-            if (status == TextToSpeech.SUCCESS) {
-                engine?.language = Locale.getDefault()
+        runCatching {
+            engine = TextToSpeech(context.applicationContext) { status ->
+                if (status == TextToSpeech.SUCCESS) {
+                    runCatching {
+                        engine?.language = Locale.getDefault()
+                        engine?.setSpeechRate(1.02f)
+                    }
+                }
             }
+            ttsEngine = engine
         }
-        ttsEngine = engine
         onDispose {
-            engine.stop()
-            engine.shutdown()
+            runCatching {
+                engine?.stop()
+                engine?.shutdown()
+            }
         }
     }
 
-    // Handle finalized voice transcript (hands-free task initiation OR chat send OR dictate)
+    fun speakChunked(text: String) {
+        val tts = ttsEngine ?: return
+        runCatching {
+            val hasDevanagari = text.any { it in '\u0900'..'\u097F' }
+            val targetLocale = if (useHindiVoice || hasDevanagari) Locale("hi", "IN") else Locale.US
+            tts.language = targetLocale
+            tts.stop()
+            val sentences = text.take(1800)
+                .split(Regex("(?<=[.!?।\\n])\\s+"))
+                .filter { it.isNotBlank() }
+            sentences.forEachIndexed { idx, sentence ->
+                val mode = if (idx == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
+                tts.speak(sentence.take(360), mode, null, "julie_tts_$idx")
+            }
+        }
+    }
+
     val handleVoiceTranscript: (String) -> Unit = { spoken ->
         val clean = spoken.trim()
         if (clean.isNotEmpty()) {
@@ -180,6 +222,9 @@ fun ChatScreen(
                 when (val parsed = VoiceInputController.parseVoiceCommand(clean)) {
                     is VoiceCommandResult.TaskInitiation -> {
                         onInitiateVoiceTask(parsed.title, parsed.prompt)
+                    }
+                    is VoiceCommandResult.ToolIntent -> {
+                        onTriggerToolIntent(parsed.action)
                     }
                     is VoiceCommandResult.ChatPrompt -> {
                         onSendPrompt(
@@ -197,7 +242,6 @@ fun ChatScreen(
 
     val latestHandleVoiceTranscript by rememberUpdatedState(handleVoiceTranscript)
 
-    // Activity fallback when SpeechRecognizer service isn't available on the device
     val fallbackVoiceLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -220,7 +264,11 @@ fun ChatScreen(
                         RecognizerIntent.EXTRA_LANGUAGE_MODEL,
                         RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
                     )
-                    putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak to Aura AI…")
+                    putExtra(
+                        RecognizerIntent.EXTRA_LANGUAGE,
+                        if (useHindiVoice) "hi-IN" else Locale.getDefault().toLanguageTag()
+                    )
+                    putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak to Julie (जुली)…")
                 }
                 runCatching { fallbackVoiceLauncher.launch(intent) }
             }
@@ -233,7 +281,6 @@ fun ChatScreen(
 
     val voiceState by voiceController.state.collectAsStateWithLifecycle()
 
-    // Runtime microphone permission launcher
     val micPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -241,7 +288,8 @@ fun ChatScreen(
         if (granted) {
             showMicPermissionBanner = false
             isMicPermanentlyDenied = false
-            voiceController.startListening()
+            ttsEngine?.stop() // Barge-in: silence TTS when mic activates
+            voiceController.startListening(if (useHindiVoice) "hi-IN" else Locale.getDefault().toLanguageTag())
         } else {
             val activity = context as? Activity
             val canAskAgain = activity?.let {
@@ -256,6 +304,8 @@ fun ChatScreen(
     }
 
     val onVoiceButtonClicked: () -> Unit = {
+        // Barge-in: always stop TTS immediately when user taps mic
+        ttsEngine?.stop()
         val currentlyGranted = ContextCompat.checkSelfPermission(
             context,
             Manifest.permission.RECORD_AUDIO
@@ -267,7 +317,7 @@ fun ChatScreen(
             if (voiceState.isListening) {
                 voiceController.stopListening()
             } else {
-                voiceController.startListening()
+                voiceController.startListening(if (useHindiVoice) "hi-IN" else Locale.getDefault().toLanguageTag())
             }
         } else {
             micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
@@ -288,7 +338,7 @@ fun ChatScreen(
     val listState = rememberLazyListState()
     val messages = (messagesState as? DataUiState.Success)?.data.orEmpty()
 
-    LaunchedEffect(messages.size, liveSwarm.streamingText.length) {
+    LaunchedEffect(messages.size, liveSwarm.streamingText.length, liveSwarm.thinkingTrace.length) {
         val target = messages.size + (if (liveSwarm.isRunning) 1 else 0)
         if (target > 0) {
             listState.animateScrollToItem(target - 1)
@@ -306,7 +356,7 @@ fun ChatScreen(
                 .fillMaxSize()
                 .widthIn(max = 720.dp)
         ) {
-            // Compact Top Bar
+            // Compact Julie Top Bar
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -314,36 +364,100 @@ fun ChatScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Aura Assistant",
+                        text = "Julie AI • जुली",
                         style = MaterialTheme.typography.headlineSmall,
                         color = PearlWhite
                     )
                     Text(
-                        text = if (profile.swarmEnabled && profile.maxPowerEnabled) {
-                            "Max Power Auto-Swarm • 33 Models"
-                        } else if (isCloudSynced) {
-                            "Direct Model • Live Cloud Sync"
-                        } else {
-                            "Direct Model • Local Guest Mode"
-                        },
+                        text = "${routingConfig.profile.label} • ${routingConfig.orchestrationMode.label} • ${if (isCloudSynced) "Synced" else "Local"}",
                         style = MaterialTheme.typography.labelSmall,
-                        color = AuraCyan
+                        color = AuraCyan,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
-                if (messages.isNotEmpty()) {
-                    IconButton(
-                        onClick = onClearChat,
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (lastDiagnostics != null) {
+                        Surface(
+                            onClick = {
+                                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                cm.setPrimaryClip(ClipData.newPlainText("Julie Diagnostics", lastDiagnostics.toCopyableReport()))
+                            },
+                            shape = RoundedCornerShape(10.dp),
+                            color = ObsidianSurfaceElevated,
+                            border = BorderStroke(1.dp, ObsidianCardBorder)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Rounded.ContentCopy, "Copy Diagnostics", tint = AuraNimGreen, modifier = Modifier.size(13.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text(
+                                    text = "${lastDiagnostics.totalMs}ms",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = AuraNimGreen
+                                )
+                            }
+                        }
+                    }
+                    if (messages.isNotEmpty()) {
+                        IconButton(
+                            onClick = onClearChat,
+                            modifier = Modifier
+                                .size(48.dp)
+                                .testTag("clear_chat_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.DeleteSweep,
+                                contentDescription = "Clear chat history",
+                                tint = SlateMist
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Explicit Tool Confirmation Banner (for sensitive actions like Dialer / Alarm)
+            AnimatedVisibility(visible = pendingToolConfirmation != null, enter = fadeIn()) {
+                pendingToolConfirmation?.let { pending ->
+                    GlassCard(
                         modifier = Modifier
-                            .size(48.dp)
-                            .testTag("clear_chat_button")
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp),
+                        cornerRadius = 18.dp,
+                        accentBorderColor = AuraAmber
                     ) {
-                        Icon(
-                            imageVector = Icons.Rounded.DeleteSweep,
-                            contentDescription = "Clear chat history",
-                            tint = SlateMist
-                        )
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text(
+                                text = "Confirm Action: ${pending.title}",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = PearlWhite,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "${pending.type.label} • Julie requires your confirmation before opening system apps.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = SlateMist
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(
+                                    onClick = onConfirmPendingTool,
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = AuraAmber,
+                                        contentColor = Color(0xFF140D00)
+                                    )
+                                ) {
+                                    Text("Confirm & Open", fontWeight = FontWeight.Bold)
+                                }
+                                OutlinedButton(onClick = onDismissPendingTool) {
+                                    Text("Cancel", color = SlateMist)
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -391,14 +505,7 @@ fun ChatScreen(
                                 items(messages, key = { it.id.ifBlank { it.hashCode().toString() } }) { message ->
                                     ChatMessageBubble(
                                         message = message,
-                                        onSpeak = { text ->
-                                            ttsEngine?.speak(
-                                                text.take(1200),
-                                                TextToSpeech.QUEUE_FLUSH,
-                                                null,
-                                                "aura_tts"
-                                            )
-                                        },
+                                        onSpeak = { text -> speakChunked(text) },
                                         onOpenLink = { url ->
                                             runCatching {
                                                 context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
@@ -411,6 +518,39 @@ fun ChatScreen(
                                     item(key = "live_streaming_bubble") {
                                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                             LiveSwarmPipelineBanner(liveSwarm = liveSwarm)
+
+                                            if (liveSwarm.thinkingTrace.isNotBlank()) {
+                                                GlassCard(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    cornerRadius = 18.dp,
+                                                    accentBorderColor = AuraIndigo
+                                                ) {
+                                                    Column(modifier = Modifier.padding(12.dp)) {
+                                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                                            Icon(
+                                                                Icons.Rounded.Psychology,
+                                                                contentDescription = "Reasoning trace",
+                                                                tint = AuraCyan,
+                                                                modifier = Modifier.size(15.dp)
+                                                            )
+                                                            Spacer(Modifier.width(6.dp))
+                                                            Text(
+                                                                text = "LIVE THINKING TRACE",
+                                                                style = MaterialTheme.typography.labelSmall,
+                                                                color = AuraCyan,
+                                                                fontWeight = FontWeight.Bold
+                                                            )
+                                                        }
+                                                        Spacer(Modifier.height(4.dp))
+                                                        Text(
+                                                            text = liveSwarm.thinkingTrace.takeLast(520),
+                                                            style = MaterialTheme.typography.bodySmall,
+                                                            color = SlateMist
+                                                        )
+                                                    }
+                                                }
+                                            }
+
                                             if (liveSwarm.streamingText.isNotBlank()) {
                                                 GlassCard(
                                                     modifier = Modifier.fillMaxWidth(),
@@ -419,7 +559,7 @@ fun ChatScreen(
                                                 ) {
                                                     Column(modifier = Modifier.padding(16.dp)) {
                                                         Text(
-                                                            text = "STREAMING LIVE",
+                                                            text = "STREAMING LIVE (SINGLE-FLIGHT)",
                                                             style = MaterialTheme.typography.labelSmall,
                                                             color = AuraCyan
                                                         )
@@ -441,7 +581,7 @@ fun ChatScreen(
                 }
             }
 
-            // Attached Screen Frame Preview (when live screen share / screenshot exists)
+            // Attached Screen Frame Preview
             AnimatedVisibility(
                 visible = screenCaptureState.latestBitmap != null && attachScreenEnabled,
                 enter = fadeIn()
@@ -471,12 +611,16 @@ fun ChatScreen(
                             Spacer(Modifier.width(10.dp))
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = "Screen Frame Attached",
+                                    text = if (screenCaptureState.isSharingActive) {
+                                        "Live Screen Frame #${screenCaptureState.frameCount}"
+                                    } else {
+                                        "Screen Frame Attached"
+                                    },
                                     style = MaterialTheme.typography.titleSmall,
                                     color = PearlWhite
                                 )
                                 Text(
-                                    text = "${screenCaptureState.captureSourceLabel} • Aura Vision ready",
+                                    text = "${screenCaptureState.captureSourceLabel} • NVIDIA Vision ready",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = AuraCoral
                                 )
@@ -499,7 +643,6 @@ fun ChatScreen(
                 }
             }
 
-            // Microphone Permission Rationale / Denied Banner
             MicrophonePermissionBanner(
                 visible = showMicPermissionBanner && !hasMicPermission,
                 isPermanentlyDenied = isMicPermanentlyDenied,
@@ -516,20 +659,18 @@ fun ChatScreen(
                 onDismiss = { showMicPermissionBanner = false }
             )
 
-            // Live SpeechRecognizer Waveform & Partial Transcript Overlay
             VoiceListeningPanel(
                 voiceState = voiceState,
                 handsFreeEnabled = handsFreeAutoSend,
                 onStopListening = { voiceController.stopListening() }
             )
 
-            // Inline Voice Recognition Error Feedback
             VoiceErrorPill(
                 errorMessage = voiceState.errorMessage,
                 onDismiss = { voiceController.clearError() }
             )
 
-            // Quick Mode Toggle Row (Max Swarm, Google Search, Hands-Free Voice, Share Screen)
+            // Quick Mode Toggle Row
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -537,6 +678,14 @@ fun ChatScreen(
                     .padding(bottom = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                GlassChip(
+                    label = if (useHindiVoice) "हिंदी Voice" else "EN/Hinglish",
+                    selected = useHindiVoice,
+                    onClick = { useHindiVoice = !useHindiVoice },
+                    accentColor = AuraAmber,
+                    icon = Icons.Rounded.Translate,
+                    modifier = Modifier.testTag("toggle_hindi_voice_chip")
+                )
                 GlassChip(
                     label = if (handsFreeAutoSend) {
                         stringResource(R.string.voice_hands_free_on)
@@ -550,7 +699,7 @@ fun ChatScreen(
                     modifier = Modifier.testTag("toggle_hands_free_chip")
                 )
                 GlassChip(
-                    label = if (profile.swarmEnabled) "Auto Swarm ON" else "Single Model",
+                    label = if (profile.swarmEnabled) "Manager Swarm" else "1 Model",
                     selected = profile.swarmEnabled,
                     onClick = { onToggleSwarm(!profile.swarmEnabled) },
                     accentColor = AuraNimGreen,
@@ -558,7 +707,7 @@ fun ChatScreen(
                     modifier = Modifier.testTag("toggle_swarm_chip")
                 )
                 GlassChip(
-                    label = "Google Search",
+                    label = "Web Context",
                     selected = profile.autoSearchEnabled,
                     onClick = { onToggleSearch(!profile.autoSearchEnabled) },
                     accentColor = AuraBlue,
@@ -566,7 +715,7 @@ fun ChatScreen(
                     modifier = Modifier.testTag("toggle_search_chip")
                 )
                 GlassChip(
-                    label = if (screenCaptureState.isSharingActive) "Screen Live" else "Share Screen",
+                    label = if (screenCaptureState.isSharingActive) "Screen LIVE" else "Share Screen",
                     selected = screenCaptureState.isSharingActive || (screenCaptureState.latestBitmap != null && attachScreenEnabled),
                     onClick = {
                         if (screenCaptureState.latestBitmap != null) {
@@ -640,9 +789,9 @@ fun ChatScreen(
                         placeholder = {
                             Text(
                                 text = if (attachScreenEnabled && screenCaptureState.latestBitmap != null) {
-                                    "Ask about your shared screen..."
+                                    "Ask Julie Vision about your live screen..."
                                 } else {
-                                    "Ask Aura anything or search Google..."
+                                    "Ask Julie (English / हिंदी / Hinglish)..."
                                 },
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = SlateMist
@@ -664,32 +813,52 @@ fun ChatScreen(
 
                     Spacer(Modifier.width(4.dp))
 
-                    val canSend = inputText.isNotBlank() && !liveSwarm.isRunning
-                    Surface(
-                        onClick = {
-                            if (canSend) {
-                                val textToSend = inputText
-                                inputText = ""
-                                onSendPrompt(
-                                    textToSend,
-                                    profile.autoSearchEnabled,
-                                    attachScreenEnabled && screenCaptureState.latestBitmap != null
+                    if (liveSwarm.isRunning) {
+                        Surface(
+                            onClick = onCancelGeneration,
+                            shape = CircleShape,
+                            color = AuraCoral,
+                            modifier = Modifier
+                                .size(48.dp)
+                                .testTag("stop_chat_button")
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Stop,
+                                    contentDescription = "Stop generation",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(20.dp)
                                 )
                             }
-                        },
-                        shape = CircleShape,
-                        color = if (canSend) AuraBlue else ObsidianSurface,
-                        modifier = Modifier
-                            .size(48.dp)
-                            .testTag("send_chat_button")
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Rounded.Send,
-                                contentDescription = "Send prompt",
-                                tint = if (canSend) Color.White else SlateMist,
-                                modifier = Modifier.size(20.dp)
-                            )
+                        }
+                    } else {
+                        val canSend = inputText.isNotBlank()
+                        Surface(
+                            onClick = {
+                                if (canSend) {
+                                    val textToSend = inputText
+                                    inputText = ""
+                                    onSendPrompt(
+                                        textToSend,
+                                        profile.autoSearchEnabled,
+                                        attachScreenEnabled && screenCaptureState.latestBitmap != null
+                                    )
+                                }
+                            },
+                            shape = CircleShape,
+                            color = if (canSend) AuraBlue else ObsidianSurface,
+                            modifier = Modifier
+                                .size(48.dp)
+                                .testTag("send_chat_button")
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Rounded.Send,
+                                    contentDescription = "Send prompt",
+                                    tint = if (canSend) Color.White else SlateMist,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -711,22 +880,22 @@ private fun EmptyChatQuickLaunch(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         IosSquircleIcon(
-            gradientStart = AuraBlue,
+            gradientStart = AuraNimGreen,
             gradientEnd = AuraCyan,
             size = 64.dp,
             cornerRadius = 18.dp,
             icon = Icons.Rounded.AutoAwesome,
-            contentDescription = "Aura AI Swarm"
+            contentDescription = "Julie AI"
         )
         Spacer(Modifier.height(14.dp))
         Text(
-            text = "What shall we build or solve?",
+            text = "नमस्ते! मैं जुली हूँ — Julie AI",
             style = MaterialTheme.typography.headlineSmall,
             color = PearlWhite
         )
         Spacer(Modifier.height(4.dp))
         Text(
-            text = "Multiple models collaborate automatically with live Google Search",
+            text = "Nemotron-first single-flight routing • Live Screen Vision • Voice Tools",
             style = MaterialTheme.typography.bodySmall,
             color = SlateMist
         )
@@ -737,24 +906,24 @@ private fun EmptyChatQuickLaunch(
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             QuickPromptTile(
-                title = "Google Live Search",
-                subtitle = "Today's top AI & tech breakthroughs",
+                title = "Live Web Research",
+                subtitle = "Today's top AI & NVIDIA news",
                 icon = Icons.Rounded.Public,
                 start = AuraBlue,
                 end = AuraCyan,
                 onClick = {
-                    onPickPrompt("Search Google for today's biggest AI & tech news and summarize the top 5 highlights.", true)
+                    onPickPrompt("Summarize today's biggest AI & NVIDIA technology updates in 5 clear bullet points.", true)
                 },
                 modifier = Modifier.weight(1f)
             )
             QuickPromptTile(
                 title = "Code Architect",
-                subtitle = "DeepSeek R1 + Qwen Coder swarm",
+                subtitle = "Nemotron Lightning + Manager",
                 icon = Icons.Rounded.Code,
                 start = AuraIndigo,
                 end = AuraBlue,
                 onClick = {
-                    onPickPrompt("Design a scalable clean architecture blueprint with Kotlin & Jetpack Compose best practices.", false)
+                    onPickPrompt("Design a clean MVVM + Coroutines architecture blueprint for a production Android app.", false)
                 },
                 modifier = Modifier.weight(1f)
             )
@@ -765,8 +934,8 @@ private fun EmptyChatQuickLaunch(
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             QuickPromptTile(
-                title = "Share Screen Vision",
-                subtitle = "Let Aura inspect your screen live",
+                title = "Live Screen Vision",
+                subtitle = "Real-time 1–3 FPS AI stream",
                 icon = Icons.Rounded.ScreenShare,
                 start = AuraCoral,
                 end = AuraAmber,
@@ -774,13 +943,13 @@ private fun EmptyChatQuickLaunch(
                 modifier = Modifier.weight(1f)
             )
             QuickPromptTile(
-                title = "24h Productivity Plan",
-                subtitle = "Multi-model daily schedule",
+                title = "Daily Action Plan",
+                subtitle = "Hindi / English productivity",
                 icon = Icons.Rounded.TaskAlt,
                 start = AuraNimGreen,
                 end = AuraMint,
                 onClick = {
-                    onPickPrompt("Create a high-output 24-hour study & work schedule with deep focus blocks and automation tips.", false)
+                    onPickPrompt("Mere liye ek high-focus daily study & coding schedule banao Hinglish me.", false)
                 },
                 modifier = Modifier.weight(1f)
             )
@@ -858,7 +1027,7 @@ private fun ChatMessageBubble(
                 Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                     if (message.hasScreenContext) {
                         Text(
-                            text = "SCREEN CONTEXT ATTACHED",
+                            text = "LIVE SCREEN CONTEXT ATTACHED",
                             style = MaterialTheme.typography.labelSmall,
                             color = Color.White.copy(alpha = 0.8f)
                         )
@@ -948,7 +1117,7 @@ private fun ChatMessageBubble(
                     if (message.searchSources.isNotEmpty()) {
                         Spacer(Modifier.height(12.dp))
                         Text(
-                            text = "GOOGLE SEARCH SOURCES",
+                            text = "LIVE WEB SOURCES",
                             style = MaterialTheme.typography.labelSmall,
                             color = SlateMist,
                             fontWeight = FontWeight.Bold

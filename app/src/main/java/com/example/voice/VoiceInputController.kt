@@ -7,6 +7,8 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.util.Log
+import com.example.tools.JulieToolType
+import com.example.tools.PendingToolAction
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -24,11 +26,12 @@ data class VoiceInputState(
 sealed interface VoiceCommandResult {
     data class ChatPrompt(val text: String) : VoiceCommandResult
     data class TaskInitiation(val title: String, val prompt: String) : VoiceCommandResult
+    data class ToolIntent(val action: PendingToolAction) : VoiceCommandResult
 }
 
 /**
  * Wraps Android's on-device SpeechRecognizer API for real-time voice-to-text
- * dictation with live audio RMS feedback and hands-free task command detection.
+ * dictation with live audio RMS feedback and Hindi/Hinglish/English Julie command detection.
  */
 class VoiceInputController(
     private val context: Context,
@@ -42,7 +45,7 @@ class VoiceInputController(
 
     fun isAvailable(): Boolean = SpeechRecognizer.isRecognitionAvailable(context)
 
-    fun startListening() {
+    fun startListening(languageTag: String = Locale.getDefault().toLanguageTag()) {
         clearError()
         if (!isAvailable()) {
             Log.w(TAG, "SpeechRecognizer service unavailable; falling back to RecognizerIntent.")
@@ -62,7 +65,7 @@ class VoiceInputController(
                     RecognizerIntent.EXTRA_LANGUAGE_MODEL,
                     RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
                 )
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, languageTag)
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                 putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
                 putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
@@ -130,7 +133,6 @@ class VoiceInputController(
         }
 
         override fun onRmsChanged(rmsdB: Float) {
-            // Normalize typical speech RMS dB (-2..10) into 0f..1f range for waveform animation
             val normalized = ((rmsdB + 2f) / 12f).coerceIn(0f, 1f)
             _state.value = _state.value.copy(audioRmsDb = normalized)
         }
@@ -189,6 +191,11 @@ class VoiceInputController(
     }
 
     companion object {
+        private val WAKE_PREFIXES = listOf(
+            "hey julie,", "hey julie ", "hi julie,", "hi julie ", "ok julie,", "ok julie ",
+            "julie,", "julie ", "हाय जुली ", "हेलो जुली ", "ओके जुली ", "जुली "
+        )
+
         private val TASK_PREFIXES = listOf(
             "create task ",
             "create a task ",
@@ -201,26 +208,128 @@ class VoiceInputController(
             "new task ",
             "task banao ",
             "ek task banao ",
-            "ak task banao "
+            "ak task banao ",
+            "याद दिलाना ",
+            "remind me to "
         )
 
         /**
-         * Parses spoken transcript to detect hands-free task initiation intents
-         * vs. standard conversational AI prompts.
+         * Strips optional "Hey Julie / हाय जुली" wake phrase and detects real Android tool intents,
+         * hands-free task creation, or standard conversational prompts.
          */
         fun parseVoiceCommand(transcript: String): VoiceCommandResult {
-            val clean = transcript.trim()
-            val lower = clean.lowercase(Locale.getDefault())
-            val matchedPrefix = TASK_PREFIXES.firstOrNull { lower.startsWith(it) }
-            if (matchedPrefix != null) {
-                val body = clean.substring(matchedPrefix.length).trim()
+            var clean = transcript.trim()
+            val initialLower = clean.lowercase(Locale.ROOT)
+            val wake = WAKE_PREFIXES.firstOrNull { initialLower.startsWith(it) }
+            if (wake != null) {
+                clean = clean.substring(wake.length).trim()
+            }
+            if (clean.isEmpty()) return VoiceCommandResult.ChatPrompt(transcript.trim())
+
+            val lower = clean.lowercase(Locale.ROOT)
+
+            // 1. Task / Reminder Creation
+            val matchedTaskPrefix = TASK_PREFIXES.firstOrNull { lower.startsWith(it) }
+            if (matchedTaskPrefix != null) {
+                val body = clean.substring(matchedTaskPrefix.length).trim()
                 if (body.isNotBlank()) {
                     val title = body.replaceFirstChar {
-                        if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString()
+                        if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString()
                     }.take(72)
                     return VoiceCommandResult.TaskInitiation(title = title, prompt = body)
                 }
             }
+
+            // 2. YouTube Search / Open (English, Hindi, Hinglish)
+            if (lower.startsWith("search youtube for ") || lower.startsWith("youtube search ") ||
+                lower.startsWith("play ") && lower.contains("youtube") ||
+                lower.contains("यूट्यूब पर खोजो") || lower.contains("youtube par khojo") ||
+                lower.contains("गाना चलाओ") || lower.contains("gaana chalao")
+            ) {
+                val query = clean
+                    .replace(Regex("(?i)(search youtube for|youtube search|on youtube|youtube par khojo|gaana chalao|play)"), "")
+                    .replace("यूट्यूब पर खोजो", "")
+                    .replace("गाना चलाओ", "")
+                    .trim()
+                return VoiceCommandResult.ToolIntent(
+                    PendingToolAction(
+                        type = JulieToolType.SEARCH_YOUTUBE,
+                        title = if (query.isBlank()) "Open YouTube" else "YouTube: $query",
+                        argument = query
+                    )
+                )
+            }
+
+            // 3. Google Web Search (English, Hindi, Hinglish)
+            if (lower.startsWith("search google for ") || lower.startsWith("google search ") ||
+                lower.startsWith("google par search ") || lower.contains("गूगल पर खोजो")
+            ) {
+                val query = clean
+                    .replace(Regex("(?i)(search google for|google search|google par search)"), "")
+                    .replace("गूगल पर खोजो", "")
+                    .trim()
+                if (query.isNotBlank()) {
+                    return VoiceCommandResult.ToolIntent(
+                        PendingToolAction(
+                            type = JulieToolType.SEARCH_WEB,
+                            title = "Google Search: $query",
+                            argument = query
+                        )
+                    )
+                }
+            }
+
+            // 4. Open App (YouTube खोलो / Open WhatsApp / Chrome / Maps / Spotify)
+            if (lower.startsWith("open ") || lower.endsWith(" kholo") || lower.endsWith(" खोलो")) {
+                val appName = clean
+                    .replace(Regex("(?i)^open\\s+"), "")
+                    .replace(Regex("(?i)\\s+kholo$"), "")
+                    .replace("खोलो", "")
+                    .trim()
+                if (appName.isNotBlank() && appName.length <= 32) {
+                    return VoiceCommandResult.ToolIntent(
+                        PendingToolAction(
+                            type = JulieToolType.LAUNCH_APP,
+                            title = "Open $appName",
+                            argument = appName
+                        )
+                    )
+                }
+            }
+
+            // 5. Phone Dialer (Safe ACTION_DIAL with explicit confirmation)
+            if (lower.startsWith("call ") || lower.startsWith("dial ") ||
+                lower.contains("कॉल लगाओ") || lower.contains("call lagao")
+            ) {
+                val target = clean
+                    .replace(Regex("(?i)(^call\\s+|^dial\\s+|call lagao)"), "")
+                    .replace("कॉल लगाओ", "")
+                    .trim()
+                return VoiceCommandResult.ToolIntent(
+                    PendingToolAction(
+                        type = JulieToolType.DIAL_PHONE,
+                        title = "Open Dialer ($target)",
+                        argument = target
+                    )
+                )
+            }
+
+            // 6. Set Alarm (explicit confirmation via Clock app)
+            if (lower.startsWith("set alarm") || lower.contains("अलार्म लगाओ") || lower.contains("alarm lagao")) {
+                val timeMatch = Regex("(\\d{1,2})(?::(\\d{2}))?").find(clean)
+                val hour = timeMatch?.groupValues?.getOrNull(1)?.toIntOrNull()?.coerceIn(0, 23) ?: 7
+                val minute = timeMatch?.groupValues?.getOrNull(2)?.toIntOrNull()?.coerceIn(0, 59) ?: 0
+                return VoiceCommandResult.ToolIntent(
+                    PendingToolAction(
+                        type = JulieToolType.SET_ALARM,
+                        title = "Set Alarm %02d:%02d".format(hour, minute),
+                        argument = clean,
+                        extraHour = hour,
+                        extraMinute = minute
+                    )
+                )
+            }
+
             return VoiceCommandResult.ChatPrompt(clean)
         }
     }
