@@ -247,7 +247,7 @@ class VoiceInputController(
 
             if (isYouTubeCommand && isSearchOrPlay) {
                 val query = clean
-                    .replace(Regex("(?i)(open youtube and search for|open youtube and search|search youtube for|youtube search|on youtube|youtube par search karo|youtube par search|youtube par khojo|youtube kholo aur|kholo aur|gaana chalao|play|search)"), "")
+                    .replace(Regex("(?i)(open youtube and search for|open youtube and search|search youtube for|youtube search|on youtube|youtube par search karo|youtube par search|youtube par khojo|youtube kholo aur|kholo aur|gaana chalao|search karo|search|play)"), "")
                     .replace("यूट्यूब खोलो और", "")
                     .replace("यूट्यूब पर खोजो", "")
                     .replace("यूट्यूब पर", "")
@@ -255,6 +255,8 @@ class VoiceInputController(
                     .replace("खोजो", "")
                     .replace("गाना चलाओ", "")
                     .replace("चलाओ", "")
+                    .replace(Regex("(?i)\\s+karo$"), "")
+                    .replace("करो", "")
                     .trim()
                 return VoiceCommandResult.ToolIntent(
                     PendingToolAction(
