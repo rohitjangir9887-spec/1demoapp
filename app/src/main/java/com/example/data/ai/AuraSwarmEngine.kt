@@ -274,7 +274,32 @@ class AuraSwarmEngine(private val appContext: Context) {
         onThinkingToken: (String) -> Unit,
         onStreamToken: (String) -> Unit
     ): SwarmResult {
-        requireNimConfigured()
+        if (!NvidiaNimClient.isConfigured()) {
+            onStageUpdate(
+                SwarmStepUpdate(
+                    activeModelName = "Google Gemini Free AI",
+                    stageLabel = "Generating response via Google Free AI...",
+                    progressPercent = 50,
+                    completedSteps = listOf("Running on Google Gemini Free AI Engine")
+                )
+            )
+            val geminiText = com.example.data.remote.GoogleGeminiClient.generateContent(
+                context = appContext,
+                prompt = userPrompt,
+                conversationContext = conversationContext,
+                attachedBitmap = attachedBitmap,
+                onStreamToken = onStreamToken
+            )
+            return SwarmResult(
+                finalText = geminiText,
+                reasoningTrace = "Executed with Google Gemini Free AI mode. Set a free Google AI Studio key in 33 Models tab for live cloud intelligence.",
+                primaryEngineLabel = "Google Gemini Free AI",
+                collaboratingModels = listOf("Google Gemini 2.0 Flash", "Julie Intelligent Agent"),
+                searchSources = emptyList(),
+                usedWebSearch = false,
+                steps = listOf("Google Gemini Free AI Router engaged", "Response synthesized successfully")
+            )
+        }
 
         val requestId = "req_${UUID.randomUUID().toString().take(8)}"
         val startMs = System.currentTimeMillis()

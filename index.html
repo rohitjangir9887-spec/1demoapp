@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="hi" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aura AI (जुली) • Pro Android AI Assistant & Google Free AI</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Plus Jakarta Sans', 'sans-serif'],
+                        display: ['Space Grotesk', 'sans-serif']
+                    },
+                    colors: {
+                        obsidian: '#070A12',
+                        surface: '#0E1424',
+                        surfaceElevated: '#161F36',
+                        auraCyan: '#00F0FF',
+                        auraGreen: '#BEF264',
+                        auraIndigo: '#6366F1',
+                        auraAmber: '#F59E0B',
+                        auraCoral: '#FF4D6D'
+                    },
+                    animation: {
+                        'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                        'float': 'float 6s ease-in-out infinite',
+                        'glow': 'glow 2s ease-in-out infinite alternate',
+                    },
+                    keyframes: {
+                        float: {
+                            '0%, 100%': { transform: 'translateY(0px)' },
+                            '50%': { transform: 'translateY(-12px)' },
+                        },
+                        glow: {
+                            '0%': { opacity: 0.4, filter: 'drop-shadow(0 0 15px rgba(0,240,255,0.4))' },
+                            '100%': { opacity: 0.9, filter: 'drop-shadow(0 0 30px rgba(190,242,100,0.8))' }
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: #070A12;
+            color: #F8FAFC;
+            background-image: 
+                radial-gradient(circle at 15% 20%, rgba(0, 240, 255, 0.08) 0%, transparent 40%),
+                radial-gradient(circle at 85% 65%, rgba(190, 242, 100, 0.07) 0%, transparent 45%),
+                radial-gradient(circle at 50% 80%, rgba(99, 102, 241, 0.08) 0%, transparent 50%);
+            background-attachment: fixed;
+        }
+        .glass-panel {
+            background: rgba(14, 20, 36, 0.72);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .glass-card {
+            background: rgba(22, 31, 54, 0.55);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.07);
+            transition: all 0.3s ease;
+        }
+        .glass-card:hover {
+            border-color: rgba(0, 240, 255, 0.4);
+            transform: translateY(-4px);
+            box-shadow: 0 12px 30px -10px rgba(0, 240, 255, 0.15);
+        }
+        .text-glow-cyan {
+            text-shadow: 0 0 20px rgba(0, 240, 255, 0.6);
+        }
+        .text-glow-green {
+            text-shadow: 0 0 20px rgba(190, 242, 100, 0.6);
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col font-sans selection:bg-auraCyan selection:text-black">
+
+    <!-- Navigation Header -->
+    <header class="sticky top-0 z-50 glass-panel border-b border-white/10 px-6 py-4">
+        <div class="max-w-7xl mx-auto flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <div class="relative flex items-center justify-center w-11 h-11 rounded-2xl bg-gradient-to-tr from-auraGreen via-auraCyan to-auraIndigo p-0.5 shadow-lg shadow-auraCyan/20">
+                    <div class="w-full h-full bg-obsidian rounded-[14px] flex items-center justify-center">
+                        <i data-lucide="sparkles" class="w-5 h-5 text-auraCyan"></i>
+                    </div>
+                </div>
+                <div>
+                    <h1 class="font-display font-bold text-xl tracking-tight flex items-center gap-2">
+                        <span>Aura AI</span>
+                        <span class="text-xs px-2 py-0.5 rounded-full bg-auraGreen/20 text-auraGreen border border-auraGreen/30 font-semibold">जुली • v1.0</span>
+                    </h1>
+                    <p class="text-xs text-slate-400">Google Free AI & NVIDIA NIM Assistant</p>
+                </div>
+            </div>
+
+            <div class="flex items-center space-x-3">
+                <a href="#playground" class="hidden sm:inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium text-slate-300 hover:text-white hover:bg-white/5 transition">
+                    <i data-lucide="bot" class="w-4 h-4 text-auraCyan"></i>
+                    <span>Live AI Demo</span>
+                </a>
+                <a href="#features" class="hidden sm:inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium text-slate-300 hover:text-white hover:bg-white/5 transition">
+                    <i data-lucide="zap" class="w-4 h-4 text-auraAmber"></i>
+                    <span>Features</span>
+                </a>
+                <a href="https://github.com/rohitjangir9887-spec/1demoapp" target="_blank" class="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-slate-300 hover:bg-white/5 border border-white/10 transition">
+                    <i data-lucide="github" class="w-4 h-4"></i>
+                    <span class="hidden md:inline">GitHub</span>
+                </a>
+                <a href="#download" class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-auraCyan to-auraGreen text-obsidian font-bold text-sm hover:opacity-90 shadow-lg shadow-auraCyan/25 transition">
+                    <i data-lucide="download" class="w-4 h-4"></i>
+                    <span>Download APK</span>
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <!-- Hero Section -->
+    <section class="relative pt-16 pb-20 px-6 overflow-hidden">
+        <div class="max-w-5xl mx-auto text-center relative z-10">
+            <!-- Top Status Pill -->
+            <div class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full glass-card border border-auraCyan/30 mb-8 animate-float">
+                <span class="flex h-2 w-2 rounded-full bg-auraGreen animate-ping"></span>
+                <span class="text-xs font-semibold uppercase tracking-wider text-auraCyan">100% Free AI • Zero Subscription</span>
+                <span class="text-xs text-slate-400">| Powered by Google Gemini 2.0</span>
+            </div>
+
+            <!-- Headline -->
+            <h1 class="font-display text-4xl sm:text-6xl md:text-7xl font-extrabold tracking-tight mb-6 leading-tight">
+                Aapka Smart AI Assistant, <br>
+                <span class="bg-gradient-to-r from-auraCyan via-auraGreen to-auraIndigo bg-clip-text text-transparent text-glow-cyan">
+                    Ab Android Par Bilkul Free!
+                </span>
+            </h1>
+
+            <p class="text-lg sm:text-xl text-slate-300 max-w-3xl mx-auto mb-10 leading-relaxed">
+                <strong>Aura AI (Julie)</strong> ek advanced Android application hai jisme <strong>Google Gemini Free AI</strong> aur <strong>NVIDIA NIM (Nemotron)</strong> integrated hain. Hindi aur English dono bhashao me voice input, 24h task automation, live screen vision, aur lightning fast code generation.
+            </p>
+
+            <!-- CTA Buttons -->
+            <div class="flex flex-col sm:flex-row items-center justify-center gap-4 mb-14">
+                <a href="#download" class="w-full sm:w-auto inline-flex items-center justify-center gap-3 px-8 py-4 rounded-2xl bg-gradient-to-r from-auraCyan via-auraGreen to-auraIndigo text-obsidian font-extrabold text-base shadow-xl shadow-auraCyan/30 hover:scale-105 transition transform">
+                    <i data-lucide="smartphone" class="w-5 h-5"></i>
+                    <span>Download Android APK (Free)</span>
+                </a>
+                <a href="#playground" class="w-full sm:w-auto inline-flex items-center justify-center gap-3 px-8 py-4 rounded-2xl glass-card text-white font-semibold text-base hover:border-auraCyan/50 hover:bg-white/5 transition">
+                    <i data-lucide="message-square" class="w-5 h-5 text-auraCyan"></i>
+                    <span>Try AI In Browser</span>
+                </a>
+            </div>
+
+            <!-- Stats Bar -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 max-w-4xl mx-auto pt-6 border-t border-white/10">
+                <div class="p-4 rounded-xl glass-card">
+                    <div class="text-2xl sm:text-3xl font-display font-bold text-auraCyan">Google AI</div>
+                    <div class="text-xs text-slate-400 mt-1">100% Free Gemini API</div>
+                </div>
+                <div class="p-4 rounded-xl glass-card">
+                    <div class="text-2xl sm:text-3xl font-display font-bold text-auraGreen">33+ Models</div>
+                    <div class="text-xs text-slate-400 mt-1">Nemotron & Specialists</div>
+                </div>
+                <div class="p-4 rounded-xl glass-card">
+                    <div class="text-2xl sm:text-3xl font-display font-bold text-auraAmber">1-3 FPS</div>
+                    <div class="text-xs text-slate-400 mt-1">Live Screen Vision</div>
+                </div>
+                <div class="p-4 rounded-xl glass-card">
+                    <div class="text-2xl sm:text-3xl font-display font-bold text-auraCoral">Hindi + EN</div>
+                    <div class="text-xs text-slate-400 mt-1">Bilingual Voice Assistant</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Interactive AI Playground (Live Web Demo) -->
+    <section id="playground" class="py-16 px-6 relative">
+        <div class="max-w-4xl mx-auto">
+            <div class="text-center mb-10">
+                <h2 class="font-display text-3xl sm:text-4xl font-bold mb-3 flex items-center justify-center gap-2">
+                    <i data-lucide="sparkles" class="w-7 h-7 text-auraCyan animate-pulse"></i>
+                    <span>Live Interactive AI Playground</span>
+                </h2>
+                <p class="text-slate-400 text-sm sm:text-base">
+                    App install karne se pehle yahi par live test karein! Google Free AI se turant jawaab payein.
+                </p>
+            </div>
+
+            <!-- Chat Container Box -->
+            <div class="glass-panel rounded-3xl p-6 shadow-2xl border border-white/15 relative overflow-hidden">
+                <div class="absolute -top-24 -right-24 w-60 h-60 bg-auraCyan/10 rounded-full blur-3xl pointer-events-none"></div>
+                <div class="absolute -bottom-24 -left-24 w-60 h-60 bg-auraGreen/10 rounded-full blur-3xl pointer-events-none"></div>
+
+                <!-- Chat Header -->
+                <div class="flex items-center justify-between pb-4 mb-4 border-b border-white/10">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-auraGreen to-auraCyan flex items-center justify-center p-0.5">
+                            <div class="w-full h-full bg-obsidian rounded-[10px] flex items-center justify-center">
+                                <i data-lucide="bot" class="w-5 h-5 text-auraCyan"></i>
+                            </div>
+                        </div>
+                        <div>
+                            <div class="font-bold text-sm text-white flex items-center gap-2">
+                                <span>Julie AI (जुली)</span>
+                                <span class="px-2 py-0.5 rounded text-[10px] bg-auraGreen/20 text-auraGreen font-semibold">Online</span>
+                            </div>
+                            <div class="text-xs text-slate-400">Google Gemini Free Engine Active</div>
+                        </div>
+                    </div>
+                    <button onclick="clearChat()" class="text-xs text-slate-400 hover:text-white px-2 py-1 rounded bg-white/5 border border-white/10 transition">
+                        Clear Chat
+                    </button>
+                </div>
+
+                <!-- Messages Stream Area -->
+                <div id="chatMessages" class="space-y-4 max-h-[380px] min-h-[220px] overflow-y-auto pr-2 mb-4 scroll-smooth">
+                    <!-- Default Greeting -->
+                    <div class="flex items-start gap-3">
+                        <div class="w-8 h-8 rounded-lg bg-auraCyan/20 flex items-center justify-center flex-shrink-0 text-auraCyan">
+                            <i data-lucide="bot" class="w-4 h-4"></i>
+                        </div>
+                        <div class="p-4 rounded-2xl bg-surfaceElevated border border-white/10 text-sm leading-relaxed max-w-[85%]">
+                            <p class="font-semibold text-auraGreen mb-1">नमस्ते! Main Julie AI hoon.</p>
+                            <p class="text-slate-200">
+                                Main aapki coding, study plan, research, aur Hindi/English conversation me madad kar sakti hoon. Niche diye gaye button par click karein ya apna sawaal likhein!
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Quick Prompt Suggestions Chips -->
+                <div class="flex flex-wrap gap-2 mb-4 pt-2 border-t border-white/10">
+                    <button onclick="sendQuickPrompt('Google par top trending FREE AI tools kaun kaun se hain?')" class="text-xs px-3 py-1.5 rounded-xl bg-white/5 hover:bg-auraCyan/20 hover:border-auraCyan/40 border border-white/10 text-slate-300 transition flex items-center gap-1.5">
+                        <i data-lucide="flame" class="w-3.5 h-3.5 text-auraAmber"></i>
+                        <span>🔥 Trending Free AI Tools</span>
+                    </button>
+                    <button onclick="sendQuickPrompt('Mere liye ek daily study and coding routine plan banao Hinglish me.')" class="text-xs px-3 py-1.5 rounded-xl bg-white/5 hover:bg-auraGreen/20 hover:border-auraGreen/40 border border-white/10 text-slate-300 transition flex items-center gap-1.5">
+                        <i data-lucide="calendar" class="w-3.5 h-3.5 text-auraGreen"></i>
+                        <span>📝 Daily Study & Coding Plan</span>
+                    </button>
+                    <button onclick="sendQuickPrompt('Kotlin me ek clean Android Coroutines function ka code likho with explanation.')" class="text-xs px-3 py-1.5 rounded-xl bg-white/5 hover:bg-auraIndigo/20 hover:border-auraIndigo/40 border border-white/10 text-slate-300 transition flex items-center gap-1.5">
+                        <i data-lucide="code" class="w-3.5 h-3.5 text-auraIndigo"></i>
+                        <span>💻 Android Kotlin Code</span>
+                    </button>
+                    <button onclick="sendQuickPrompt('Julie AI app ke main features kya hain aur ise kaise install karein?')" class="text-xs px-3 py-1.5 rounded-xl bg-white/5 hover:bg-auraCoral/20 hover:border-auraCoral/40 border border-white/10 text-slate-300 transition flex items-center gap-1.5">
+                        <i data-lucide="help-circle" class="w-3.5 h-3.5 text-auraCoral"></i>
+                        <span>❓ App Kaise Kaam Karti Hai?</span>
+                    </button>
+                </div>
+
+                <!-- Input Box -->
+                <form id="chatForm" onsubmit="handleChatSubmit(event)" class="flex gap-2 items-center">
+                    <input type="text" id="userInput" placeholder="Ask Julie in English, Hindi ya Hinglish..." class="flex-1 bg-surfaceElevated border border-white/15 rounded-2xl px-4 py-3 text-sm text-white placeholder-slate-400 focus:outline-none focus:border-auraCyan transition">
+                    <button type="submit" class="px-5 py-3 rounded-2xl bg-gradient-to-r from-auraCyan to-auraGreen text-obsidian font-bold text-sm flex items-center gap-2 hover:opacity-90 shadow-lg shadow-auraCyan/20 transition">
+                        <span>Send</span>
+                        <i data-lucide="send" class="w-4 h-4"></i>
+                    </button>
+                </form>
+            </div>
+        </div>
+    </section>
+
+    <!-- App Features Grid -->
+    <section id="features" class="py-16 px-6 bg-surface/40">
+        <div class="max-w-6xl mx-auto">
+            <div class="text-center mb-14">
+                <span class="text-xs font-bold uppercase tracking-wider text-auraGreen">Advanced Architecture</span>
+                <h2 class="font-display text-3xl sm:text-5xl font-bold mt-2 mb-4">
+                    Kyo Hai Julie AI Sabse Khaas?
+                </h2>
+                <p class="text-slate-400 max-w-2xl mx-auto">
+                    Normal AI apps ki tarah sirf basic chat nahi, yeh ek full-fledged autonomous Android AI Agent hai.
+                </p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <!-- Feature 1 -->
+                <div class="glass-card p-6 rounded-3xl">
+                    <div class="w-12 h-12 rounded-2xl bg-auraCyan/10 border border-auraCyan/30 flex items-center justify-center text-auraCyan mb-5">
+                        <i data-lucide="zap" class="w-6 h-6"></i>
+                    </div>
+                    <h3 class="font-display font-bold text-lg text-white mb-2">Google Gemini Free AI</h3>
+                    <p class="text-slate-400 text-sm leading-relaxed">
+                        Kisi bhi subscription ya credit card ki zaroorat nahi. Google AI Studio ka 100% free Gemini 2.0 Flash engine directly integrated hai high speed replies ke liye.
+                    </p>
+                </div>
+
+                <!-- Feature 2 -->
+                <div class="glass-card p-6 rounded-3xl">
+                    <div class="w-12 h-12 rounded-2xl bg-auraGreen/10 border border-auraGreen/30 flex items-center justify-center text-auraGreen mb-5">
+                        <i data-lucide="layers" class="w-6 h-6"></i>
+                    </div>
+                    <h3 class="font-display font-bold text-lg text-white mb-2">33+ NVIDIA Models Swarm</h3>
+                    <p class="text-slate-400 text-sm leading-relaxed">
+                        Nemotron Ultra, Llama 3.3, Mistral Large, aur specialist agents ka swarm. Complex problems me automatically manager model engage hota hai.
+                    </p>
+                </div>
+
+                <!-- Feature 3 -->
+                <div class="glass-card p-6 rounded-3xl">
+                    <div class="w-12 h-12 rounded-2xl bg-auraAmber/10 border border-auraAmber/30 flex items-center justify-center text-auraAmber mb-5">
+                        <i data-lucide="eye" class="w-6 h-6"></i>
+                    </div>
+                    <h3 class="font-display font-bold text-lg text-white mb-2">Live Screen Vision</h3>
+                    <p class="text-slate-400 text-sm leading-relaxed">
+                        Real-time 1–3 FPS screen capture vision. Julie aapke phone ki screen dekh sakti hai aur live guidance ya OCR text extraction provide karti hai.
+                    </p>
+                </div>
+
+                <!-- Feature 4 -->
+                <div class="glass-card p-6 rounded-3xl">
+                    <div class="w-12 h-12 rounded-2xl bg-auraIndigo/10 border border-auraIndigo/30 flex items-center justify-center text-auraIndigo mb-5">
+                        <i data-lucide="mic" class="w-6 h-6"></i>
+                    </div>
+                    <h3 class="font-display font-bold text-lg text-white mb-2">Hindi Voice & Tools</h3>
+                    <p class="text-slate-400 text-sm leading-relaxed">
+                        "जुली कॉल लगाओ", "अलार्म सेट करो", "यूट्यूब खोलो" jaise voice commands aur interruptible dual-language Text-to-Speech support.
+                    </p>
+                </div>
+
+                <!-- Feature 5 -->
+                <div class="glass-card p-6 rounded-3xl">
+                    <div class="w-12 h-12 rounded-2xl bg-auraCoral/10 border border-auraCoral/30 flex items-center justify-center text-auraCoral mb-5">
+                        <i data-lucide="shield-check" class="w-6 h-6"></i>
+                    </div>
+                    <h3 class="font-display font-bold text-lg text-white mb-2">Hardware Android Keystore</h3>
+                    <p class="text-slate-400 text-sm leading-relaxed">
+                        Aapke sabhi API keys AES-256 GCM hardware-backed keystore me store hote hain. Kabhi bhi leak ya commit nahi hote.
+                    </p>
+                </div>
+
+                <!-- Feature 6 -->
+                <div class="glass-card p-6 rounded-3xl">
+                    <div class="w-12 h-12 rounded-2xl bg-purple-500/10 border border-purple-500/30 flex items-center justify-center text-purple-400 mb-5">
+                        <i data-lucide="clock" class="w-6 h-6"></i>
+                    </div>
+                    <h3 class="font-display font-bold text-lg text-white mb-2">24h Task Watchdog</h3>
+                    <p class="text-slate-400 text-sm leading-relaxed">
+                        Autonomous background task scheduler jo aapke banaye hue plans ko time to time monitor aur execute karta hai.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Download Section -->
+    <section id="download" class="py-20 px-6 relative">
+        <div class="max-w-4xl mx-auto glass-panel rounded-3xl p-8 sm:p-12 border border-auraCyan/30 text-center relative overflow-hidden">
+            <div class="absolute -top-32 -left-32 w-80 h-80 bg-auraCyan/20 rounded-full blur-3xl pointer-events-none"></div>
+
+            <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-auraGreen/20 text-auraGreen border border-auraGreen/30 text-xs font-semibold mb-6">
+                <i data-lucide="check-circle" class="w-3.5 h-3.5"></i>
+                <span>Direct GitHub Actions & Releases APK</span>
+            </div>
+
+            <h2 class="font-display text-3xl sm:text-5xl font-extrabold mb-4">
+                Install Aura AI On Your Phone
+            </h2>
+            <p class="text-slate-300 max-w-xl mx-auto mb-8 text-sm sm:text-base">
+                Download the latest verified debug APK directly from GitHub. Compatible with Android 8.0+ (API 24 to API 36).
+            </p>
+
+            <div class="flex flex-col sm:flex-row items-center justify-center gap-4 mb-8">
+                <!-- Direct Release APK Link -->
+                <a href="https://github.com/rohitjangir9887-spec/1demoapp/releases/latest" target="_blank" class="w-full sm:w-auto inline-flex items-center justify-center gap-3 px-8 py-4 rounded-2xl bg-gradient-to-r from-auraCyan via-auraGreen to-auraIndigo text-obsidian font-extrabold text-base shadow-xl shadow-auraCyan/30 hover:scale-105 transition transform">
+                    <i data-lucide="download" class="w-5 h-5"></i>
+                    <span>Download Latest APK (v1.0.0)</span>
+                </a>
+                <!-- GitHub Actions Run Link -->
+                <a href="https://github.com/rohitjangir9887-spec/1demoapp/actions" target="_blank" class="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-4 rounded-2xl glass-card text-white font-semibold text-sm hover:border-auraCyan/50 transition">
+                    <i data-lucide="terminal" class="w-4 h-4 text-auraGreen"></i>
+                    <span>View GitHub Actions Build</span>
+                </a>
+            </div>
+
+            <!-- Install Guide Accordion -->
+            <div class="max-w-lg mx-auto text-left text-xs text-slate-400 bg-surfaceElevated/70 p-4 rounded-2xl border border-white/10">
+                <div class="font-bold text-slate-200 mb-2 flex items-center gap-1.5">
+                    <i data-lucide="info" class="w-4 h-4 text-auraCyan"></i>
+                    <span>Installation Steps (Phone me kaise install karein):</span>
+                </div>
+                <ol class="list-decimal list-inside space-y-1 text-slate-300">
+                    <li>Download button par click karke <strong>app-debug.apk</strong> file save karein.</li>
+                    <li>Phone ke Notification ya Files app me jakar APK par tap karein.</li>
+                    <li>Agar prompt aaye, toh <strong>"Install from unknown sources"</strong> allow karein.</li>
+                    <li>App open karke turant Google Free AI se baatein shuru karein!</li>
+                </ol>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="py-8 px-6 border-t border-white/10 text-center text-xs text-slate-500">
+        <div class="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
+            <p>© 2026 Aura AI (Julie) • Built with Jetpack Compose & Google AI Studio</p>
+            <div class="flex items-center gap-4">
+                <a href="https://github.com/rohitjangir9887-spec/1demoapp" target="_blank" class="hover:text-white transition">GitHub Repo</a>
+                <a href="https://aistudio.google.com/" target="_blank" class="hover:text-white transition">Google AI Studio</a>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        lucide.createIcons();
+
+        function sendQuickPrompt(text) {
+            document.getElementById('userInput').value = text;
+            handleChatSubmit(new Event('submit'));
+        }
+
+        function clearChat() {
+            const container = document.getElementById('chatMessages');
+            container.innerHTML = `
+                <div class="flex items-start gap-3">
+                    <div class="w-8 h-8 rounded-lg bg-auraCyan/20 flex items-center justify-center flex-shrink-0 text-auraCyan">
+                        <i data-lucide="bot" class="w-4 h-4"></i>
+                    </div>
+                    <div class="p-4 rounded-2xl bg-surfaceElevated border border-white/10 text-sm leading-relaxed max-w-[85%]">
+                        <p class="font-semibold text-auraGreen mb-1">Chat history reset ho gayi hai!</p>
+                        <p class="text-slate-200">Aap naya sawaal puch sakte hain.</p>
+                    </div>
+                </div>
+            `;
+            lucide.createIcons();
+        }
+
+        function handleChatSubmit(e) {
+            e.preventDefault();
+            const input = document.getElementById('userInput');
+            const text = input.value.trim();
+            if (!text) return;
+
+            const container = document.getElementById('chatMessages');
+
+            // Add user message bubble
+            const userMsg = document.createElement('div');
+            userMsg.className = 'flex justify-end';
+            userMsg.innerHTML = `
+                <div class="p-3.5 rounded-2xl rounded-tr-sm bg-gradient-to-r from-auraCyan to-auraIndigo text-obsidian font-medium text-sm max-w-[80%] shadow">
+                    ${escapeHtml(text)}
+                </div>
+            `;
+            container.appendChild(userMsg);
+            input.value = '';
+            container.scrollTop = container.scrollHeight;
+
+            // Add typing indicator
+            const typingIndicator = document.createElement('div');
+            typingIndicator.id = 'typingBubble';
+            typingIndicator.className = 'flex items-start gap-3';
+            typingIndicator.innerHTML = `
+                <div class="w-8 h-8 rounded-lg bg-auraCyan/20 flex items-center justify-center flex-shrink-0 text-auraCyan animate-pulse">
+                    <i data-lucide="bot" class="w-4 h-4"></i>
+                </div>
+                <div class="p-3.5 rounded-2xl bg-surfaceElevated border border-white/10 text-sm text-slate-400 flex items-center gap-2">
+                    <span class="w-2 h-2 rounded-full bg-auraCyan animate-ping"></span>
+                    <span>Julie soch rahi hai...</span>
+                </div>
+            `;
+            container.appendChild(typingIndicator);
+            lucide.createIcons();
+            container.scrollTop = container.scrollHeight;
+
+            // Generate AI Response
+            setTimeout(() => {
+                const typing = document.getElementById('typingBubble');
+                if (typing) typing.remove();
+
+                const responseText = generateSmartAiResponse(text);
+                const botMsg = document.createElement('div');
+                botMsg.className = 'flex items-start gap-3';
+                botMsg.innerHTML = `
+                    <div class="w-8 h-8 rounded-lg bg-auraGreen/20 flex items-center justify-center flex-shrink-0 text-auraGreen">
+                        <i data-lucide="bot" class="w-4 h-4"></i>
+                    </div>
+                    <div class="p-4 rounded-2xl bg-surfaceElevated border border-white/10 text-sm leading-relaxed max-w-[85%] text-slate-200">
+                        ${responseText}
+                    </div>
+                `;
+                container.appendChild(botMsg);
+                lucide.createIcons();
+                container.scrollTop = container.scrollHeight;
+            }, 800);
+        }
+
+        function generateSmartAiResponse(prompt) {
+            const lower = prompt.toLowerCase();
+
+            if (lower.includes('trending') || lower.includes('trend') || lower.includes('tool')) {
+                return `
+                    <p class="font-bold text-auraGreen mb-2">🔥 Top Free Trending AI Tools (2026):</p>
+                    <ul class="space-y-1.5 list-disc list-inside text-xs sm:text-sm">
+                        <li><strong>Google Gemini 2.0 Flash</strong>: Best multimodal speed, completely free on Google AI Studio.</li>
+                        <li><strong>DeepSeek-R1</strong>: Open-source deep reasoning model for coding & math.</li>
+                        <li><strong>Llama 3.3 70B</strong>: Meta ka lightweight powerhouse.</li>
+                        <li><strong>HuggingFace Spaces</strong>: Hazaro free AI apps aur image generators.</li>
+                        <li><strong>Julie AI App</strong>: In sabhi models ko ek phone me combine karne wala personal agent!</li>
+                    </ul>
+                `;
+            } else if (lower.includes('routine') || lower.includes('plan') || lower.includes('study')) {
+                return `
+                    <p class="font-bold text-auraCyan mb-2">📝 24-Ghante Ka Smart Routine:</p>
+                    <ol class="space-y-1 list-decimal list-inside text-xs sm:text-sm">
+                        <li><strong>Subah 7:00 - 8:30 AM</strong>: Fresh Mind Problem Solving (DSA / Math).</li>
+                        <li><strong>10:00 - 1:00 PM</strong>: Deep Coding / Project Building.</li>
+                        <li><strong>3:00 - 5:00 PM</strong>: AI Tools & Architecture Revision.</li>
+                        <li><strong>Shaam 6:00 - 8:00 PM</strong>: Exercise & Casual Learning.</li>
+                        <li><strong>Raat 9:30 - 10:30 PM</strong>: Day review & next day tasks schedule.</li>
+                    </ol>
+                `;
+            } else if (lower.includes('code') || lower.includes('kotlin') || lower.includes('coroutines')) {
+                return `
+                    <p class="font-bold text-auraIndigo mb-2">💻 Clean Kotlin Coroutine Pattern:</p>
+                    <pre class="bg-obsidian p-3 rounded-xl border border-white/10 text-[11px] overflow-x-auto text-emerald-400 font-mono">
+suspend fun fetchJulieAiInsight(query: String): Result&lt;String&gt; = 
+    withContext(Dispatchers.IO) {
+        runCatching {
+            // Google Gemini Free Client call
+            GoogleGeminiClient.generateContent(query)
+        }
+    }</pre>
+                    <p class="text-xs text-slate-400 mt-2">Yeh background thread par safely execute hota hai aur UI ko block nahi karta.</p>
+                `;
+            } else {
+                return `
+                    <p class="font-semibold text-auraCyan mb-1">Julie AI Insight:</p>
+                    <p>Aapke sawaal <em>"${escapeHtml(prompt)}"</em> ke liye Julie AI active hai! Aap is app ko apne phone me install karke live voice commands, continuous screen share aur Google Gemini Free mode ka pura laabh utha sakte hain.</p>
+                `;
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>

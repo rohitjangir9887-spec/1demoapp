@@ -194,6 +194,7 @@ class AuraViewModel(
         get() = swarmEngine.isNvidiaNimDirectActive()
 
     init {
+        com.example.data.remote.GoogleGeminiClient.init(application)
         viewModelScope.launch {
             val displayName = if (isCloudSynced) {
                 FirebaseRuntime.currentUserOrNull(application)?.displayName ?: "Julie User"
@@ -203,6 +204,18 @@ class AuraViewModel(
             repository.ensureUserProfile(displayName)
         }
         start24hWatchdogLoop()
+    }
+
+    val isGoogleGeminiConfiguredFlow: StateFlow<Boolean> = com.example.data.remote.GoogleGeminiClient.isConfiguredFlow
+
+    fun saveGoogleGeminiKey(key: String) {
+        com.example.data.remote.GoogleGeminiClient.saveApiKey(getApplication(), key)
+        _infoNotice.value = "Google Gemini Free API Key saved in secure Keystore"
+    }
+
+    fun removeGoogleGeminiKey() {
+        com.example.data.remote.GoogleGeminiClient.removeApiKey(getApplication())
+        _infoNotice.value = "Google Gemini Key removed"
     }
 
     fun clearBannerError() {

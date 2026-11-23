@@ -1,34 +1,48 @@
-# Aura AI / OmniTask AI — Android app
+# Aura AI (Julie • जुली) — Android App & Web Portal
 
-This is the existing native Android (Kotlin + Jetpack Compose) project with Chat, Tasks, Models, and Screen Share screens.
+> 🚀 **Live Web App & Demo**: [https://rohitjangir9887-spec.github.io/1demoapp/](https://rohitjangir9887-spec.github.io/1demoapp/)  
+> 📲 **Download Latest Android APK**: [GitHub Releases](https://github.com/rohitjangir9887-spec/1demoapp/releases/latest)
 
-## Download your APK to Android
+Aura AI is a modern native Android application (Kotlin + Jetpack Compose) and Web Portal powered by **Google Gemini Free AI** and **NVIDIA NIM Swarm (Nemotron)**.
 
-1. Open **[Build 1demoapp APK](../../actions/workflows/android-apk.yml)** in the GitHub Actions tab.
-2. Select the latest **successful** run (green checkmark). If no run is present, choose **Run workflow** on the `main` branch.
-3. Scroll to **Artifacts**, then tap **1demoapp-debug-apk**.
-4. Extract the downloaded ZIP and open `app-debug.apk` to install it on your phone.
+---
 
-**Note:** This is a debug APK for testing, not a Play Store release. Each GitHub Actions build generates its own debug signing key; to install future APKs over an older one you may need to uninstall the older debug build first.
+## ✨ Key Features & Enhancements
 
-## NVIDIA NIM API — where to enter it
+1. **🤖 Google Gemini Free AI Mode (100% Free • No Subscription)**
+   * Built-in support for **Google Gemini 2.0 Flash** and **1.5 Flash**.
+   * Instant responses without requiring an NVIDIA key or paid subscription.
+   * Free API key from Google AI Studio (`aistudio.google.com`) can be saved securely in Android Keystore.
 
-Open the installed Android app, sign in if required by your Firebase setup, then open **33 Models → NVIDIA NIM • API Settings**.
+2. **🔥 33+ NVIDIA Models Swarm Fleet**
+   * Nemotron-first routing with ONE Manager model for complex multi-step tasks.
+   * Cross-vendor verified failover candidates (Llama 3.3, Mistral Large).
 
-Paste your key from https://build.nvidia.com/ and tap **Save key**. The key is stored encrypted *on that device* using Android Keystore. It is **not** sent to GitHub and it is not embedded into the downloadable APK. Use **Remove** to erase the saved key.
+3. **🎨 Glassmorphic UI & Smooth Animations**
+   * Pulsing animated AI Neural Orb in Chat.
+   * Modern glass cards, interactive prompt chips, and glowing cyber accents.
+   * Real-time streaming response indicator.
 
-The original Gradle secrets plugin still has the placeholder `NVIDIA_API_KEY` in `.env.example` for project compatibility, but the updated NVIDIA client deliberately uses the key set inside the app, not a key compiled into the APK. **Do not commit real API keys** or put them in repository settings hoping to configure the installed app.
+4. **🌐 Hindi + Hinglish + English Bilingual Voice Assistant**
+   * Voice commands with interruptible Text-to-Speech (TTS).
+   * Safe tools: dialer, alarms, app launcher, web search.
 
-## Build details
+5. **📱 Live Screen Vision & Continuous OCR**
+   * 1–3 FPS real-time screen sharing and visual reasoning with Julie Vision.
 
-- Existing application ID: `com.aistudio.auraai.k9x4mp`
-- Existing code and layout are preserved
-- Gradle 9.3.1, Android Gradle Plugin 9.1.1, JDK 17, Android SDK 36.1
-- GitHub Actions automatically runs on pushes to `main` and supports manual runs
-- Build artifact: `1demoapp-debug-apk`
+---
 
-## Important limitations
+## 📲 How to Download & Install APK
 
-The app uses Firebase services for login, chat/task storage, and some Gemini-based features; deploying those features requires a valid Firebase project and configuration. NVIDIA NIM does not automatically provide a cloud computer or permission to control all Android apps. Screen capture features require Android user consent. NIM model availability and usage quotas depend on your NVIDIA account.
+1. Go to **[GitHub Releases Latest](https://github.com/rohitjangir9887-spec/1demoapp/releases/latest)**.
+2. Tap on `1demoapp-debug.apk` to download directly to your Android device.
+3. Open the APK from your phone's Notification or File Manager.
+4. Allow **"Install unknown apps"** when prompted, and tap **Install**.
+5. Open the app and start chatting immediately with Google Free AI!
 
-If the build fails, open the failed workflow run to read the first Gradle error. Do not assume the APK was produced until the workflow succeeds.
+---
+
+## 🛠️ GitHub Deployment & CI/CD
+
+* **GitHub Actions Android CI**: Automatically builds `:app:assembleDebug` and attaches `1demoapp-debug.apk` to GitHub Releases on push to `main`.
+* **GitHub Pages Web Portal**: Automatically deploys the interactive landing page and web chat demo from `index.html`.

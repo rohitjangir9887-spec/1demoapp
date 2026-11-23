@@ -728,6 +728,20 @@ fun ChatScreen(
                     icon = Icons.Rounded.ScreenShare,
                     modifier = Modifier.testTag("chat_screen_share_chip")
                 )
+                GlassChip(
+                    label = "🤖 Google Free AI",
+                    selected = false,
+                    onClick = { inputText = "Julie! Mujhe Google ke trending Free AI tools ke baare me batao." },
+                    accentColor = AuraCyan,
+                    icon = Icons.Rounded.AutoAwesome
+                )
+                GlassChip(
+                    label = "🔥 Trending AI",
+                    selected = false,
+                    onClick = { onSendPrompt("Aaj ke top trending free AI tools kaun se hain? Explain in simple Hinglish.", true, false) },
+                    accentColor = AuraAmber,
+                    icon = Icons.Rounded.Bolt
+                )
             }
 
             // Floating Frosted Composer Bar
@@ -872,6 +886,26 @@ private fun EmptyChatQuickLaunch(
     onPickPrompt: (String, Boolean) -> Unit,
     onOpenScreenShare: () -> Unit
 ) {
+    val orbTransition = rememberInfiniteTransition(label = "julieOrbPulse")
+    val orbScale by orbTransition.animateFloat(
+        initialValue = 0.96f,
+        targetValue = 1.08f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1600, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "orbScale"
+    )
+    val glowAlpha by orbTransition.animateFloat(
+        initialValue = 0.25f,
+        targetValue = 0.65f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1600, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "glowAlpha"
+    )
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -879,14 +913,24 @@ private fun EmptyChatQuickLaunch(
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        IosSquircleIcon(
-            gradientStart = AuraNimGreen,
-            gradientEnd = AuraCyan,
-            size = 64.dp,
-            cornerRadius = 18.dp,
-            icon = Icons.Rounded.AutoAwesome,
-            contentDescription = "Julie AI"
-        )
+        Box(contentAlignment = Alignment.Center) {
+            Surface(
+                modifier = Modifier
+                    .size(80.dp)
+                    .scale(orbScale),
+                shape = CircleShape,
+                color = AuraCyan.copy(alpha = glowAlpha * 0.3f),
+                border = BorderStroke(2.dp, AuraNimGreen.copy(alpha = glowAlpha))
+            ) {}
+            IosSquircleIcon(
+                gradientStart = AuraNimGreen,
+                gradientEnd = AuraCyan,
+                size = 64.dp,
+                cornerRadius = 18.dp,
+                icon = Icons.Rounded.AutoAwesome,
+                contentDescription = "Julie AI"
+            )
+        }
         Spacer(Modifier.height(14.dp))
         Text(
             text = "नमस्ते! मैं जुली हूँ — Julie AI",
@@ -895,11 +939,40 @@ private fun EmptyChatQuickLaunch(
         )
         Spacer(Modifier.height(4.dp))
         Text(
-            text = "Nemotron-first single-flight routing • Live Screen Vision • Voice Tools",
+            text = "Google Free AI & NVIDIA Swarm • Live Vision • Hindi Voice Tools",
             style = MaterialTheme.typography.bodySmall,
             color = SlateMist
         )
         Spacer(Modifier.height(22.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            QuickPromptTile(
+                title = "🤖 Google Free AI",
+                subtitle = "Gemini 2.0 zero-cost chat",
+                icon = Icons.Rounded.AutoAwesome,
+                start = AuraCyan,
+                end = AuraBlue,
+                onClick = {
+                    onPickPrompt("Julie, explain how Google Free AI tools help in daily tasks.", false)
+                },
+                modifier = Modifier.weight(1f)
+            )
+            QuickPromptTile(
+                title = "🔥 Trending AI Tools",
+                subtitle = "Top free AI platforms 2026",
+                icon = Icons.Rounded.Bolt,
+                start = AuraAmber,
+                end = AuraCoral,
+                onClick = {
+                    onPickPrompt("Google par aur internet par top free AI tools kaun kaun se hain aur unhe kaise use karein?", true)
+                },
+                modifier = Modifier.weight(1f)
+            )
+        }
+        Spacer(Modifier.height(10.dp))
 
         Row(
             modifier = Modifier.fillMaxWidth(),

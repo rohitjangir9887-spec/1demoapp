@@ -127,6 +127,8 @@ fun ModelsScreen(
     val context = LocalContext.current
     var nimApiKeyInput by remember { mutableStateOf("") }
     var nimFeedback by remember { mutableStateOf("") }
+    var geminiApiKeyInput by remember { mutableStateOf(com.example.data.remote.GoogleGeminiClient.getApiKey(context)) }
+    var geminiFeedback by remember { mutableStateOf("") }
 
     val verifiedCount = remember(modelHealthMap) {
         modelHealthMap.values.count { it.status == ModelHealthStatus.VERIFIED && !it.disabledByUser }
@@ -255,6 +257,129 @@ fun ModelsScreen(
                                         .testTag("models_max_power_toggle")
                                 )
                             }
+                        }
+                    }
+                }
+            }
+
+            // Google AI Studio Free Mode Card
+            item(key = "google_gemini_settings") {
+                val isGeminiSaved = com.example.data.remote.GoogleGeminiClient.getApiKey(context).isNotBlank()
+                GlassCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    cornerRadius = 22.dp,
+                    accentBorderColor = AuraCyan.copy(alpha = 0.65f)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                IosSquircleIcon(
+                                    icon = Icons.Rounded.AutoAwesome,
+                                    tint = AuraCyan,
+                                    background = AuraCyan.copy(alpha = 0.15f)
+                                )
+                                Column {
+                                    Text(
+                                        text = "Google AI Studio • 100% Free",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = PearlWhite,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "Gemini 2.0 Flash & 1.5 Flash • Zero Cost",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = SlateMist
+                                    )
+                                }
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(50),
+                                color = if (isGeminiSaved) AuraMint.copy(alpha = 0.16f) else AuraCyan.copy(alpha = 0.16f),
+                                border = BorderStroke(1.dp, if (isGeminiSaved) AuraMint.copy(alpha = 0.5f) else AuraCyan.copy(alpha = 0.5f))
+                            ) {
+                                Text(
+                                    text = if (isGeminiSaved) "Connected" else "Free Auto-Mode",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (isGeminiSaved) AuraMint else AuraCyan,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                )
+                            }
+                        }
+
+                        Text(
+                            text = "Google provides free Gemini API keys without credit card at aistudio.google.com. You can paste your key below for dedicated live cloud intelligence, or use the built-in free assistant instantly.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = SlateMist
+                        )
+
+                        OutlinedTextField(
+                            value = geminiApiKeyInput,
+                            onValueChange = { geminiApiKeyInput = it },
+                            label = { Text("Google Gemini Free API Key (AIzaSy...)") },
+                            placeholder = { Text("AIzaSy...") },
+                            singleLine = true,
+                            visualTransformation = PasswordVisualTransformation(),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = AuraCyan,
+                                unfocusedBorderColor = ObsidianCardBorder,
+                                focusedLabelColor = AuraCyan,
+                                unfocusedLabelColor = SlateMist,
+                                focusedTextColor = PearlWhite,
+                                unfocusedTextColor = PearlWhite
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Button(
+                                onClick = {
+                                    if (geminiApiKeyInput.isNotBlank()) {
+                                        com.example.data.remote.GoogleGeminiClient.saveApiKey(context, geminiApiKeyInput)
+                                        geminiFeedback = "Google Gemini Free Key saved successfully!"
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = AuraCyan),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("Save Gemini Key", color = Color.Black, fontWeight = FontWeight.Bold)
+                            }
+
+                            if (isGeminiSaved) {
+                                OutlinedButton(
+                                    onClick = {
+                                        com.example.data.remote.GoogleGeminiClient.removeApiKey(context)
+                                        geminiApiKeyInput = ""
+                                        geminiFeedback = "Removed Gemini Key"
+                                    },
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = AuraCoral)
+                                ) {
+                                    Text("Remove")
+                                }
+                            }
+                        }
+
+                        if (geminiFeedback.isNotBlank()) {
+                            Text(
+                                text = geminiFeedback,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = AuraMint
+                            )
                         }
                     }
                 }
