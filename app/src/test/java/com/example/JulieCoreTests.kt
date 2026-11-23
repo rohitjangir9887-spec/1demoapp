@@ -192,4 +192,50 @@ class JulieCoreTests {
             com.example.accessibility.JulieAccessibilitySafety.sanitizeNodeText("Search YouTube", null, isPassword = false)
         )
     }
+
+    @Test
+    fun markdownParserProducesRealTablesHeadingsAndCodeBlocks() {
+        val markdown = """
+            # Google Free AI Platforms
+            Here are the top AI options available:
+            
+            | Platform | Free Quota | Speed |
+            | --- | --- | --- |
+            | Gemini 2.0 Flash | 15 RPM Free | 350ms |
+            | NVIDIA Nemotron | 1,000 Credits | 280ms |
+            
+            ```kotlin
+            val client = GoogleGeminiClient()
+            ```
+            - [x] High performance
+            - [ ] Cloud sync
+        """.trimIndent()
+
+        val nodes = com.example.ui.components.parseMarkdownToNodes(markdown, isStreaming = false)
+        assertTrue(nodes.any { it is com.example.ui.components.MarkdownNode.Heading && it.text == "Google Free AI Platforms" })
+        assertTrue(nodes.any { it is com.example.ui.components.MarkdownNode.Table && it.headers.size == 3 && it.rows.size == 2 })
+        assertTrue(nodes.any { it is com.example.ui.components.MarkdownNode.CodeBlock && it.language == "kotlin" })
+        assertTrue(nodes.any { it is com.example.ui.components.MarkdownNode.ListItem && it.isTask && it.isChecked })
+    }
+
+    @Test
+    fun speechSanitizerStripsMarkdownUrlsAndTablePipes() {
+        val raw = "## Top AI Tools\nCheck out [Gemini](https://ai.google.dev) and see the table below:\n| Name | Cost |\n| --- | --- |\n| Gemini | Free |\n```python\nprint('hello')\n```\nGreat choice!"
+        val clean = com.example.voice.JulieSpeechSynthesizer.sanitizeForSpeech(raw)
+        assertFalse(clean.contains("##"))
+        assertFalse(clean.contains("https://"))
+        assertFalse(clean.contains("|"))
+        assertFalse(clean.contains("print('hello')"))
+        assertTrue(clean.contains("Gemini"))
+        assertTrue(clean.contains("Great choice!"))
+    }
+
+    @Test
+    fun multiStepVoiceCommandParsesYouTubeWorkflowIntent() {
+        val cmd = VoiceInputController.parseVoiceCommand("Julie, YouTube kholo aur Android AI Agent search karo")
+        assertTrue(cmd is VoiceCommandResult.ToolIntent)
+        val toolIntent = cmd as VoiceCommandResult.ToolIntent
+        assertEquals(JulieToolType.SEARCH_YOUTUBE, toolIntent.action.type)
+        assertEquals("Android AI Agent", toolIntent.action.argument)
+    }
 }

@@ -4,6 +4,7 @@ import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.app.KeyguardManager
 import android.content.Context
+import android.content.Intent
 import android.graphics.Path
 import android.graphics.Rect
 import android.os.Build
@@ -11,6 +12,7 @@ import android.os.Bundle
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import com.example.overlay.JulieFloatingBubbleService
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -35,6 +37,23 @@ data class AccessibilityUiNode(
     val centerX: Float,
     val centerY: Float
 )
+
+sealed interface WorkflowStep {
+    val stepTitle: String
+    data class LaunchApp(val appQuery: String, override val stepTitle: String = "Launch $appQuery") : WorkflowStep
+    data class WaitForScreen(val targetPackage: String, val timeoutMs: Long = 3000L, override val stepTitle: String = "Wait for $targetPackage") : WorkflowStep
+    data class FindAndClick(val query: String, override val stepTitle: String = "Tap '$query'") : WorkflowStep
+    data class TapCoordinates(val x: Float, val y: Float, val label: String, override val stepTitle: String = "Tap at ($x, $y)") : WorkflowStep
+    data class TypeText(val text: String, override val stepTitle: String = "Type query") : WorkflowStep
+    data class Scroll(val down: Boolean, override val stepTitle: String = if (down) "Scroll Down" else "Scroll Up") : WorkflowStep
+    data class GlobalAction(val action: Int, override val stepTitle: String) : WorkflowStep
+    data class VerifyScreenContent(val expectedText: String, override val stepTitle: String = "Verify '$expectedText'") : WorkflowStep
+}
+
+sealed interface WorkflowResult {
+    data class Success(val completedSteps: List<String>, val summary: String) : WorkflowResult
+    data class Failure(val failedStepIndex: Int, val failedStepName: String, val reason: String, val screenSummary: String) : WorkflowResult
+}
 
 data class JulieAccessibilityState(
     val isConnected: Boolean = false,
@@ -184,6 +203,142 @@ object JulieAccessibilityController {
             return false
         }
         return service.executeSafeGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK, "Global Back")
+    }
+
+    suspend fun executeVerifiedWorkflow(
+        context: Context,
+        steps: List<WorkflowStep>
+    ): WorkflowResult {
+        val service = serviceRef?.get()
+        if (service == null) {
+            val reason = "Accessibility Service is not enabled. Please enable Julie AI in Android Accessibility Settings."
+            appendLog("WORKFLOW_FAILED", reason, false)
+            return WorkflowResult.Failure(0, "Prerequisite", reason, "Service disconnected")
+        }
+
+        val completed = mutableListOf<String>()
+        for ((index, step) in steps.withIndex()) {
+            if (_state.value.isEmergencyStopped) {
+                val reason = "Execution stopped: Emergency STOP triggered by user."
+                appendLog("WORKFLOW_HALTED", reason, false)
+                return WorkflowResult.Failure(index, step.stepTitle, reason, service.captureVisibleUiSummary())
+            }
+
+            when (step) {
+                is WorkflowStep.LaunchApp -> {
+                    val intent = context.packageManager.getLaunchIntentForPackage(step.appQuery)
+                    if (intent != null) {
+                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        context.startActivity(intent)
+                        completed.add("Step ${index + 1}: Launched ${step.appQuery}")
+                        appendLog("STEP_OK", "Launched ${step.appQuery}", true)
+                        delay(1200L)
+                    } else {
+                        val reason = "App '${step.appQuery}' is not installed on this device."
+                        appendLog("STEP_FAILED", reason, false)
+                        return WorkflowResult.Failure(index, step.stepTitle, reason, service.captureVisibleUiSummary())
+                    }
+                }
+
+                is WorkflowStep.WaitForScreen -> {
+                    var waited = 0L
+                    var found = false
+                    while (waited < step.timeoutMs) {
+                        if (_state.value.activePackageName.contains(step.targetPackage, ignoreCase = true)) {
+                            found = true
+                            break
+                        }
+                        delay(250L)
+                        waited += 250L
+                    }
+                    if (found) {
+                        completed.add("Step ${index + 1}: Screen ready (${step.targetPackage})")
+                        appendLog("STEP_OK", "Active screen matches ${step.targetPackage}", true)
+                    } else {
+                        val reason = "Screen did not switch to ${step.targetPackage} within ${step.timeoutMs}ms (current: ${_state.value.activePackageName})"
+                        appendLog("STEP_FAILED", reason, false)
+                        return WorkflowResult.Failure(index, step.stepTitle, reason, service.captureVisibleUiSummary())
+                    }
+                }
+
+                is WorkflowStep.FindAndClick -> {
+                    delay(400L)
+                    val ok = service.executeFindAndClick(context, step.query)
+                    if (ok) {
+                        completed.add("Step ${index + 1}: Tapped '${step.query}'")
+                        appendLog("STEP_OK", "Tapped '${step.query}'", true)
+                        delay(600L)
+                    } else {
+                        val reason = "Could not locate UI element '${step.query}' on active screen"
+                        appendLog("STEP_FAILED", reason, false)
+                        return WorkflowResult.Failure(index, step.stepTitle, reason, service.captureVisibleUiSummary())
+                    }
+                }
+
+                is WorkflowStep.TapCoordinates -> {
+                    val ok = service.executeSafeTap(context, step.x, step.y, step.label)
+                    if (ok) {
+                        completed.add("Step ${index + 1}: Tapped at (${step.x.toInt()}, ${step.y.toInt()})")
+                        delay(500L)
+                    } else {
+                        val reason = "Tap gesture failed at (${step.x.toInt()}, ${step.y.toInt()})"
+                        return WorkflowResult.Failure(index, step.stepTitle, reason, service.captureVisibleUiSummary())
+                    }
+                }
+
+                is WorkflowStep.TypeText -> {
+                    delay(300L)
+                    val ok = service.executeSafeTextInput(step.text)
+                    if (ok) {
+                        completed.add("Step ${index + 1}: Typed '${step.text}'")
+                        appendLog("STEP_OK", "Entered text into focused input field", true)
+                        delay(500L)
+                    } else {
+                        val reason = "Failed to type text: No active editable non-password field found"
+                        appendLog("STEP_FAILED", reason, false)
+                        return WorkflowResult.Failure(index, step.stepTitle, reason, service.captureVisibleUiSummary())
+                    }
+                }
+
+                is WorkflowStep.Scroll -> {
+                    val ok = service.executeSafeScroll(context, step.down)
+                    if (ok) {
+                        completed.add("Step ${index + 1}: Scrolled ${if (step.down) "down" else "up"}")
+                        delay(600L)
+                    } else {
+                        val reason = "Scroll gesture failed"
+                        return WorkflowResult.Failure(index, step.stepTitle, reason, service.captureVisibleUiSummary())
+                    }
+                }
+
+                is WorkflowStep.GlobalAction -> {
+                    val ok = service.executeSafeGlobalAction(step.action, step.stepTitle)
+                    if (ok) {
+                        completed.add("Step ${index + 1}: Executed ${step.stepTitle}")
+                        delay(500L)
+                    } else {
+                        val reason = "Global action failed"
+                        return WorkflowResult.Failure(index, step.stepTitle, reason, service.captureVisibleUiSummary())
+                    }
+                }
+
+                is WorkflowStep.VerifyScreenContent -> {
+                    delay(700L)
+                    val summary = service.captureVisibleUiSummary()
+                    if (summary.contains(step.expectedText, ignoreCase = true)) {
+                        completed.add("Step ${index + 1}: Verified '${step.expectedText}' on screen")
+                    } else {
+                        val reason = "Verification failed: Did not find '${step.expectedText}' on screen"
+                        appendLog("STEP_FAILED", reason, false)
+                        return WorkflowResult.Failure(index, step.stepTitle, reason, summary)
+                    }
+                }
+            }
+        }
+
+        val successSummary = "Multi-step workflow verified and completed (${completed.size} steps)."
+        appendLog("WORKFLOW_SUCCESS", successSummary, true)
+        return WorkflowResult.Success(completed, successSummary)
     }
 
     internal fun setUiSnapshot(summary: String, nodeCount: Int) {

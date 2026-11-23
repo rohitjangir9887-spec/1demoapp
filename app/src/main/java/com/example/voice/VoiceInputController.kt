@@ -240,16 +240,21 @@ class VoiceInputController(
                 }
             }
 
-            // 2. YouTube Search / Open (English, Hindi, Hinglish)
-            if (lower.startsWith("search youtube for ") || lower.startsWith("youtube search ") ||
-                lower.startsWith("play ") && lower.contains("youtube") ||
-                lower.contains("यूट्यूब पर खोजो") || lower.contains("youtube par khojo") ||
-                lower.contains("गाना चलाओ") || lower.contains("gaana chalao")
-            ) {
+            // 2. YouTube Search / Open (English, Hindi, Hinglish, e.g. "YouTube kholo aur Android AI Agent search karo")
+            val isYouTubeCommand = lower.contains("youtube") || lower.contains("यूट्यूब")
+            val isSearchOrPlay = lower.contains("search") || lower.contains("khojo") || lower.contains("खोजो") ||
+                    lower.contains("chalao") || lower.contains("चलाओ") || lower.contains("play") || lower.contains("dhoondo")
+
+            if (isYouTubeCommand && isSearchOrPlay) {
                 val query = clean
-                    .replace(Regex("(?i)(search youtube for|youtube search|on youtube|youtube par khojo|gaana chalao|play)"), "")
+                    .replace(Regex("(?i)(open youtube and search for|open youtube and search|search youtube for|youtube search|on youtube|youtube par search karo|youtube par search|youtube par khojo|youtube kholo aur|kholo aur|gaana chalao|play|search)"), "")
+                    .replace("यूट्यूब खोलो और", "")
                     .replace("यूट्यूब पर खोजो", "")
+                    .replace("यूट्यूब पर", "")
+                    .replace("सर्च करो", "")
+                    .replace("खोजो", "")
                     .replace("गाना चलाओ", "")
+                    .replace("चलाओ", "")
                     .trim()
                 return VoiceCommandResult.ToolIntent(
                     PendingToolAction(

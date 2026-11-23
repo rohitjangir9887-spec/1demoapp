@@ -21,6 +21,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -39,6 +40,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -47,6 +49,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.Close
@@ -60,6 +63,7 @@ import androidx.compose.material.icons.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Psychology
 import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.ScreenShare
+import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.TaskAlt
 import androidx.compose.material.icons.rounded.Translate
@@ -75,12 +79,15 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import android.widget.Toast
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -113,9 +120,12 @@ import com.example.ui.components.GlassCard
 import com.example.ui.components.GlassChip
 import com.example.ui.components.IosSquircleIcon
 import com.example.ui.components.LiveSwarmPipelineBanner
+import com.example.ui.components.MarkdownContent
 import com.example.ui.components.MicrophonePermissionBanner
 import com.example.ui.components.VoiceErrorPill
 import com.example.ui.components.VoiceListeningPanel
+import com.example.voice.JulieSpeechSynthesizer
+import kotlinx.coroutines.launch
 import com.example.ui.theme.AuraAmber
 import com.example.ui.theme.AuraBlue
 import com.example.ui.theme.AuraCoral
@@ -175,43 +185,24 @@ fun ChatScreen(
     var showMicPermissionBanner by remember { mutableStateOf(false) }
     var isMicPermanentlyDenied by remember { mutableStateOf(false) }
 
-    // Interruptible Text-to-Speech engine with Hindi/English locale support & sentence chunking
-    var ttsEngine by remember { mutableStateOf<TextToSpeech?>(null) }
-    DisposableEffect(context) {
-        var engine: TextToSpeech? = null
-        runCatching {
-            engine = TextToSpeech(context.applicationContext) { status ->
-                if (status == TextToSpeech.SUCCESS) {
-                    runCatching {
-                        engine?.language = Locale.getDefault()
-                        engine?.setSpeechRate(1.02f)
-                    }
-                }
-            }
-            ttsEngine = engine
-        }
-        onDispose {
-            runCatching {
-                engine?.stop()
-                engine?.shutdown()
-            }
-        }
+    // High-fidelity speech synthesizer with sentence-chunked streaming, Hindi/English locale & audio focus
+    val speechSynthesizer = remember(context) { JulieSpeechSynthesizer(context) }
+    val speechUiState by speechSynthesizer.uiState.collectAsStateWithLifecycle()
+
+    DisposableEffect(speechSynthesizer) {
+        onDispose { speechSynthesizer.destroy() }
     }
 
-    fun speakChunked(text: String) {
-        val tts = ttsEngine ?: return
-        runCatching {
-            val hasDevanagari = text.any { it in '\u0900'..'\u097F' }
-            val targetLocale = if (useHindiVoice || hasDevanagari) Locale("hi", "IN") else Locale.US
-            tts.language = targetLocale
-            tts.stop()
-            val sentences = text.take(1800)
-                .split(Regex("(?<=[.!?।\\n])\\s+"))
-                .filter { it.isNotBlank() }
-            sentences.forEachIndexed { idx, sentence ->
-                val mode = if (idx == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
-                tts.speak(sentence.take(360), mode, null, "julie_tts_$idx")
-            }
+    fun speakResponse(text: String) {
+        speechSynthesizer.speak(text, preferHindi = useHindiVoice)
+    }
+
+    // Incremental streaming speech: speaks sentences progressively as tokens arrive from AI
+    LaunchedEffect(liveSwarm.streamingText) {
+        if (liveSwarm.isRunning && liveSwarm.streamingText.isNotBlank()) {
+            speechSynthesizer.onStreamingTokens(liveSwarm.streamingText, preferHindi = useHindiVoice)
+        } else if (!liveSwarm.isRunning) {
+            speechSynthesizer.resetStreamingBuffer()
         }
     }
 
@@ -288,7 +279,7 @@ fun ChatScreen(
         if (granted) {
             showMicPermissionBanner = false
             isMicPermanentlyDenied = false
-            ttsEngine?.stop() // Barge-in: silence TTS when mic activates
+            speechSynthesizer.stop() // Barge-in: silence TTS when mic activates
             voiceController.startListening(if (useHindiVoice) "hi-IN" else Locale.getDefault().toLanguageTag())
         } else {
             val activity = context as? Activity
@@ -305,7 +296,7 @@ fun ChatScreen(
 
     val onVoiceButtonClicked: () -> Unit = {
         // Barge-in: always stop TTS immediately when user taps mic
-        ttsEngine?.stop()
+        speechSynthesizer.stop()
         val currentlyGranted = ContextCompat.checkSelfPermission(
             context,
             Manifest.permission.RECORD_AUDIO
@@ -336,18 +327,56 @@ fun ChatScreen(
     )
 
     val listState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
     val messages = (messagesState as? DataUiState.Success)?.data.orEmpty()
 
-    LaunchedEffect(messages.size, liveSwarm.streamingText.length, liveSwarm.thinkingTrace.length) {
+    val isNearBottom by remember {
+        derivedStateOf {
+            val layoutInfo = listState.layoutInfo
+            val total = layoutInfo.totalItemsCount
+            if (total == 0) true
+            else {
+                val lastVisible = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+                lastVisible >= total - 2
+            }
+        }
+    }
+
+    // Auto-scroll to latest message when user sends or a new message arrives
+    LaunchedEffect(messages.size) {
         val target = messages.size + (if (liveSwarm.isRunning) 1 else 0)
         if (target > 0) {
             listState.animateScrollToItem(target - 1)
         }
     }
 
+    // Follow streaming text incrementally ONLY IF the user is already near the bottom
+    var lastScrollTokenCount by remember { mutableStateOf(0) }
+    LaunchedEffect(liveSwarm.streamingText.length) {
+        val len = liveSwarm.streamingText.length
+        if (liveSwarm.isRunning && isNearBottom && (len - lastScrollTokenCount > 40 || len == 0)) {
+            lastScrollTokenCount = len
+            val target = messages.size + 1
+            if (target > 0) {
+                listState.scrollToItem(target - 1)
+            }
+        }
+    }
+
+    // Ensure the end of response is visible when streaming finishes
+    LaunchedEffect(liveSwarm.isRunning) {
+        if (!liveSwarm.isRunning && isNearBottom) {
+            val target = messages.size
+            if (target > 0) {
+                listState.animateScrollToItem(target - 1)
+            }
+        }
+    }
+
     Column(
         modifier = modifier
             .fillMaxSize()
+            .imePadding()
             .padding(horizontal = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
@@ -505,7 +534,7 @@ fun ChatScreen(
                                 items(messages, key = { it.id.ifBlank { it.hashCode().toString() } }) { message ->
                                     ChatMessageBubble(
                                         message = message,
-                                        onSpeak = { text -> speakChunked(text) },
+                                        onSpeak = { text -> speakResponse(text) },
                                         onOpenLink = { url ->
                                             runCatching {
                                                 context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
@@ -564,10 +593,14 @@ fun ChatScreen(
                                                             color = AuraCyan
                                                         )
                                                         Spacer(Modifier.height(6.dp))
-                                                        Text(
-                                                            text = liveSwarm.streamingText,
-                                                            style = MaterialTheme.typography.bodyLarge,
-                                                            color = PearlWhite
+                                                        MarkdownContent(
+                                                            markdown = liveSwarm.streamingText,
+                                                            isStreaming = true,
+                                                            onOpenLink = { url ->
+                                                                runCatching {
+                                                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                                                                }
+                                                            }
                                                         )
                                                     }
                                                 }
@@ -576,6 +609,50 @@ fun ChatScreen(
                                     }
                                 }
                             }
+                        }
+                    }
+                }
+
+                // Jump to latest message button (visible only when scrolled up)
+                AnimatedVisibility(
+                    visible = !isNearBottom && (messages.isNotEmpty() || liveSwarm.isRunning),
+                    enter = fadeIn(),
+                    exit = fadeOut(),
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(bottom = 12.dp, end = 8.dp)
+                ) {
+                    Surface(
+                        onClick = {
+                            coroutineScope.launch {
+                                val target = messages.size + (if (liveSwarm.isRunning) 1 else 0)
+                                if (target > 0) {
+                                    listState.animateScrollToItem(target - 1)
+                                }
+                            }
+                        },
+                        shape = RoundedCornerShape(20.dp),
+                        color = ObsidianSurfaceElevated.copy(alpha = 0.95f),
+                        border = BorderStroke(1.dp, AuraCyan.copy(alpha = 0.65f)),
+                        shadowElevation = 8.dp
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.ArrowDownward,
+                                contentDescription = "Jump to latest",
+                                tint = AuraCyan,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                text = "Jump to latest",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = PearlWhite,
+                                fontWeight = FontWeight.SemiBold
+                            )
                         }
                     }
                 }
@@ -1094,6 +1171,7 @@ private fun ChatMessageBubble(
     onSpeak: (String) -> Unit,
     onOpenLink: (String) -> Unit
 ) {
+    val context = LocalContext.current
     val isUser = message.roleEnum() == MessageRole.USER
 
     Row(
@@ -1158,16 +1236,50 @@ private fun ChatMessageBubble(
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
-                        IconButton(
-                            onClick = { onSpeak(message.content) },
-                            modifier = Modifier.size(48.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.VolumeUp,
-                                contentDescription = "Read response aloud",
-                                tint = SlateMist,
-                                modifier = Modifier.size(18.dp)
-                            )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(
+                                onClick = {
+                                    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    cm.setPrimaryClip(ClipData.newPlainText("Julie Response", message.content))
+                                    Toast.makeText(context, "Copied response to clipboard", Toast.LENGTH_SHORT).show()
+                                },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.ContentCopy,
+                                    contentDescription = "Copy response",
+                                    tint = SlateMist,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                            IconButton(
+                                onClick = {
+                                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                        type = "text/plain"
+                                        putExtra(Intent.EXTRA_TEXT, message.content)
+                                    }
+                                    context.startActivity(Intent.createChooser(shareIntent, "Share Julie Response"))
+                                },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Share,
+                                    contentDescription = "Share response",
+                                    tint = SlateMist,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                            IconButton(
+                                onClick = { onSpeak(message.content) },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.VolumeUp,
+                                    contentDescription = "Read response aloud",
+                                    tint = AuraCyan,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
                         }
                     }
 
@@ -1195,10 +1307,10 @@ private fun ChatMessageBubble(
                     }
 
                     Spacer(Modifier.height(10.dp))
-                    Text(
-                        text = message.content,
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = PearlWhite
+                    MarkdownContent(
+                        markdown = message.content,
+                        isStreaming = false,
+                        onOpenLink = onOpenLink
                     )
 
                     if (message.searchSources.isNotEmpty()) {

@@ -429,10 +429,12 @@ class AuraViewModel(
         _isWatchdog24hActive.value = enabled
         if (enabled) {
             start24hWatchdogLoop()
-            _infoNotice.value = "Autonomous task runner armed (foreground/active session)"
+            com.example.tasks.JulieTaskExecutionService.start(getApplication(), "24h Task Execution Armed")
+            _infoNotice.value = "Autonomous 24h task runner armed (foreground service active)"
         } else {
             watchdogJob?.cancel()
             watchdogJob = null
+            com.example.tasks.JulieTaskRunner.stopAll(getApplication())
             _infoNotice.value = "Autonomous task runner paused"
         }
     }
@@ -683,7 +685,8 @@ class AuraViewModel(
                 if (MongoDbClient.isConfigured() && MongoDbClient.configFlow.value.autoSyncEnabled) {
                     MongoDbClient.upsertTask(newTask)
                 }
-                if (runImmediately) {
+                if (runImmediately || scheduleMode == ScheduleMode.CONTINUOUS_24H) {
+                    com.example.tasks.JulieTaskExecutionService.start(getApplication(), cleanTitle)
                     executeSingleTask(newTask)
                 } else {
                     _infoNotice.value = "Task queued for Julie NVIDIA Swarm"

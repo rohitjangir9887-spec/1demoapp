@@ -277,7 +277,7 @@ class LocalAuraStore(context: Context) : AuraDataSource {
         prefs.edit().putString(KEY_TASKS, arr.toString()).apply()
     }
 
-    private fun loadTasks(): List<AssistantTask> {
+    fun loadTasks(): List<AssistantTask> {
         val raw = prefs.getString(KEY_TASKS, null) ?: return emptyList()
         return try {
             val arr = JSONArray(raw)
