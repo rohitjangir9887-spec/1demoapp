@@ -124,7 +124,11 @@ jobs:
           set +e
           gradle --no-daemon --stacktrace :app:testDebugUnitTest :app:assembleDebug > build-output.log 2>&1
           result=$?
-          tail -n 90 build-output.log
+          tail -n 65 build-output.log
+          if [ -d app/build/test-results/testDebugUnitTest ]; then
+            echo "--- Unit test results ---"
+            grep -h -E '<testsuite |<testcase |<failure |<error ' app/build/test-results/testDebugUnitTest/*.xml | head -n 35 || true
+          fi
           exit $result
 
       - name: Upload APK for phone download
@@ -169,6 +173,13 @@ jobs:
               echo "## Compiler and build errors"
               echo '~~~'
               (grep -Ei '(^e: |error: |unresolved reference|caused by:|FAILURE:|\* What went wrong:|failed to)' build-output.log | head -n 35 || true) | sed -E 's/nvapi-[A-Za-z0-9_-]+/[REDACTED_NVIDIA_KEY]/g' | cut -c 1-220
+              echo '~~~'
+              echo
+              echo "## Failed unit tests"
+              echo '~~~'
+              if [ -d app/build/test-results/testDebugUnitTest ]; then
+                grep -h -E '<testsuite |<testcase |<failure |<error ' app/build/test-results/testDebugUnitTest/*.xml | head -n 45 | cut -c 1-220 || true
+              fi
               echo '~~~'
               echo
               echo "## Tail of build log"
