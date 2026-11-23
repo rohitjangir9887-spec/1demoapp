@@ -549,10 +549,10 @@ class JulieFloatingBubbleService : Service() {
                     localStore.addMessage(
                         role = com.example.data.model.MessageRole.ASSISTANT,
                         content = result.finalText,
-                        modelUsed = result.modelUsed,
-                        swarmModels = result.participatingModels,
-                        searchSources = result.groundingUrls,
-                        usedWebSearch = result.groundingUrls.isNotEmpty(),
+                        modelUsed = result.primaryEngineLabel,
+                        swarmModels = result.collaboratingModels,
+                        searchSources = result.searchSources,
+                        usedWebSearch = result.usedWebSearch,
                         hasScreenContext = latestFrame != null
                     )
                 }

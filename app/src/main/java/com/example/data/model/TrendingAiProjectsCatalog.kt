@@ -34,7 +34,7 @@ object TrendingAiProjectsCatalog {
             category = "GitHub Agent",
             tags = listOf("GitHub", "CI/CD", "Code Quality"),
             prompt = "Analyze trending GitHub AI repositories today. Extract top stars, architectural patterns, outstanding issues, and summarize how we can integrate their best components.",
-            taskCategory = TaskCategory.CODING
+            taskCategory = TaskCategory.CODE
         ),
         TrendingAiProject(
             id = "android_full_phone_agent",
@@ -43,7 +43,7 @@ object TrendingAiProjectsCatalog {
             category = "Automation",
             tags = listOf("Accessibility", "Voice", "Hands-Free"),
             prompt = "Check installed apps on the device, prepare multi-step voice workflows for YouTube, Chrome, and phone dialer, and verify all accessibility gesture coordinates.",
-            taskCategory = TaskCategory.DEVICE_ACTION
+            taskCategory = TaskCategory.AUTOMATION
         ),
         TrendingAiProject(
             id = "global_ai_news_sentinel",

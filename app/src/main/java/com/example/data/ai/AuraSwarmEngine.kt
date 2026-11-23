@@ -32,6 +32,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.net.URLEncoder
+import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.random.Random
