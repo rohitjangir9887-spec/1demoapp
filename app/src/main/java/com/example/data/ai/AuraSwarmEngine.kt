@@ -1,13 +1,20 @@
 package com.example.data.ai
 
+import android.content.Context
 import android.graphics.Bitmap
+import android.util.Base64
 import android.util.Log
 import com.example.data.model.AiModelSpec
 import com.example.data.model.AiModelsCatalog
 import com.example.data.model.ModelProvider
 import com.example.data.remote.NimChatRequest
+import com.example.data.remote.NimImageUrl
 import com.example.data.remote.NimMessage
+import com.example.data.remote.NimVisionChatRequest
+import com.example.data.remote.NimVisionContentPart
+import com.example.data.remote.NimVisionMessage
 import com.example.data.remote.NvidiaNimClient
+import com.example.firebase.FirebaseRuntime
 import com.google.firebase.Firebase
 import com.google.firebase.ai.ai
 import com.google.firebase.ai.type.Schema
@@ -19,7 +26,9 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withTimeout
+import org.json.JSONArray
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 
 private const val TAG = "AuraSwarmEngine"
 
@@ -46,7 +55,7 @@ data class PlannedSubTask(
     val priority: String
 )
 
-class AuraSwarmEngine {
+class AuraSwarmEngine(private val appContext: Context) {
 
     // Lazily initialized Firebase AI Logic models (never eagerly evaluated at construction)
     private val flashModel by lazy {
@@ -96,7 +105,18 @@ class AuraSwarmEngine {
         )
     }
 
+    private val isFirebaseAiAvailable: Boolean
+        get() = FirebaseRuntime.isFirebaseConfigured(appContext)
+
     fun isNvidiaNimDirectActive(): Boolean = NvidiaNimClient.isConfigured()
+
+    private fun requireAnyBackendReady() {
+        if (!isFirebaseAiAvailable && !NvidiaNimClient.isConfigured()) {
+            throw IllegalStateException(
+                "No AI engine connected yet. Open the 33 Models tab and paste your free NVIDIA NIM API key (nvapi-...) to run all models."
+            )
+        }
+    }
 
     /**
      * Executes a prompt using either Multi-Model Automatic Swarm Collaboration (Max Power)
@@ -114,6 +134,8 @@ class AuraSwarmEngine {
         onStageUpdate: (SwarmStepUpdate) -> Unit = {},
         onStreamToken: (String) -> Unit = {}
     ): SwarmResult {
+        requireAnyBackendReady()
+
         val steps = mutableListOf<String>()
         val selectedSwarm = AiModelsCatalog.selectBestSwarmForPrompt(
             prompt = userPrompt,
@@ -123,88 +145,41 @@ class AuraSwarmEngine {
         )
         val modelNames = selectedSwarm.map { it.displayName }
 
-        // 1. Vision + Screen Share Mode (Real Multimodal Gemini Vision)
+        // 1. Vision + Screen Share Mode (Firebase AI Gemini Vision OR NVIDIA NIM Vision fallback)
         if (attachedBitmap != null) {
-            val visionModels = selectedSwarm.map { it.displayName }
-            steps.add("Visual frame locked (${attachedBitmap.width}x${attachedBitmap.height})")
-            onStageUpdate(
-                SwarmStepUpdate(
-                    activeModelName = "Gemini 3.8 Flash Vision",
-                    stageLabel = "Inspecting shared screen & UI context...",
-                    progressPercent = 30,
-                    completedSteps = steps.toList()
-                )
-            )
-
-            val promptText = buildString {
-                append("You are Aura AI, an expert 24/7 autonomous assistant inspecting the user's shared screen or image.\n")
-                append("Respond clearly in the user's language (English or Hinglish if they write in Hinglish).\n")
-                append("Provide immediate, accurate, step-by-step help based directly on what is visible.\n\n")
-                if (conversationContext.isNotBlank()) {
-                    append("Recent context:\n$conversationContext\n\n")
-                }
-                append("User request: $userPrompt")
-            }
-
-            val accumulated = StringBuilder()
-            try {
-                withTimeout(60_000L) {
-                    flashModel.generateContentStream(
-                        content {
-                            image(attachedBitmap)
-                            text(promptText)
-                        }
-                    ).collect { chunk ->
-                        val piece = chunk.text.orEmpty()
-                        if (piece.isNotEmpty()) {
-                            accumulated.append(piece)
-                            onStreamToken(accumulated.toString())
-                        }
-                    }
-                }
-            } catch (e: TimeoutCancellationException) {
-                Log.e(TAG, "Vision stream timed out", e)
-                throw IllegalStateException("Screen analysis timed out after 60 seconds. Please retry.")
-            } catch (e: CancellationException) {
-                throw e
-            }
-
-            val finalAnswer = accumulated.toString().trim()
-                .ifBlank { throw IllegalStateException("Vision model returned an empty response.") }
-
-            steps.add("Screen insights synthesized by Vision Swarm")
-            onStageUpdate(
-                SwarmStepUpdate(
-                    activeModelName = "Vision Swarm",
-                    stageLabel = "Screen analysis complete",
-                    progressPercent = 100,
-                    completedSteps = steps.toList()
-                )
-            )
-
-            return SwarmResult(
-                finalText = finalAnswer,
-                primaryEngineLabel = "Aura Vision Swarm (${visionModels.size} Models)",
-                collaboratingModels = visionModels,
-                searchSources = emptyList(),
-                usedWebSearch = false,
-                steps = steps
-            )
-        }
-
-        // 2. Multi-Model Automatic Swarm Collaboration (Max Power)
-        if (swarmEnabled && maxPowerEnabled) {
-            return executeCollaborativeSwarm(
+            return executeVisionQuery(
                 userPrompt = userPrompt,
                 conversationContext = conversationContext,
                 selectedSwarm = selectedSwarm,
-                useGoogleSearch = useGoogleSearch,
+                attachedBitmap = attachedBitmap,
                 onStageUpdate = onStageUpdate,
                 onStreamToken = onStreamToken
             )
         }
 
-        // 3. Direct Single-Model Execution (NVIDIA NIM if configured + NIM model chosen, else Firebase AI Logic)
+        // 2. Multi-Model Automatic Swarm Collaboration (Max Power)
+        if (swarmEnabled && maxPowerEnabled) {
+            return if (isFirebaseAiAvailable) {
+                executeCollaborativeSwarm(
+                    userPrompt = userPrompt,
+                    conversationContext = conversationContext,
+                    selectedSwarm = selectedSwarm,
+                    useGoogleSearch = useGoogleSearch,
+                    onStageUpdate = onStageUpdate,
+                    onStreamToken = onStreamToken
+                )
+            } else {
+                executePureNimCollaborativeSwarm(
+                    userPrompt = userPrompt,
+                    conversationContext = conversationContext,
+                    selectedSwarm = selectedSwarm,
+                    onStageUpdate = onStageUpdate,
+                    onStreamToken = onStreamToken
+                )
+            }
+        }
+
+        // 3. Direct Single-Model Execution
         val primaryModel = selectedSwarm.firstOrNull() ?: AiModelsCatalog.allModels.first()
         val sources = mutableListOf<String>()
         var didSearch = false
@@ -213,20 +188,32 @@ class AuraSwarmEngine {
         onStageUpdate(
             SwarmStepUpdate(
                 activeModelName = primaryModel.displayName,
-                stageLabel = if (useGoogleSearch) "Searching Google & generating..." else "Generating direct response...",
+                stageLabel = if (useGoogleSearch && isFirebaseAiAvailable) {
+                    "Searching Google & generating..."
+                } else {
+                    "Generating direct response..."
+                },
                 progressPercent = 40,
                 completedSteps = steps.toList()
             )
         )
 
-        if (!useGoogleSearch && primaryModel.provider == ModelProvider.NVIDIA_NIM && NvidiaNimClient.isConfigured()) {
-            val nimOutput = tryCallNvidiaNim(primaryModel, userPrompt, conversationContext)
+        val shouldTryNimDirect = NvidiaNimClient.isConfigured() &&
+            (!isFirebaseAiAvailable || (!useGoogleSearch && primaryModel.provider == ModelProvider.NVIDIA_NIM))
+
+        if (shouldTryNimDirect) {
+            val nimModel = if (primaryModel.provider == ModelProvider.NVIDIA_NIM) {
+                primaryModel
+            } else {
+                defaultNimModel()
+            }
+            val nimOutput = tryCallNvidiaNim(nimModel, userPrompt, conversationContext)
             if (!nimOutput.isNullOrBlank()) {
                 onStreamToken(nimOutput)
                 steps.add("Direct NVIDIA NIM endpoint succeeded")
                 onStageUpdate(
                     SwarmStepUpdate(
-                        activeModelName = primaryModel.displayName,
+                        activeModelName = nimModel.displayName,
                         stageLabel = "Complete via NVIDIA NIM",
                         progressPercent = 100,
                         completedSteps = steps.toList()
@@ -234,11 +221,16 @@ class AuraSwarmEngine {
                 )
                 return SwarmResult(
                     finalText = nimOutput,
-                    primaryEngineLabel = "${primaryModel.displayName} (NIM)",
-                    collaboratingModels = listOf(primaryModel.displayName),
+                    primaryEngineLabel = "${nimModel.displayName} (NIM)",
+                    collaboratingModels = listOf(nimModel.displayName),
                     searchSources = emptyList(),
                     usedWebSearch = false,
                     steps = steps
+                )
+            }
+            if (!isFirebaseAiAvailable) {
+                throw IllegalStateException(
+                    "NVIDIA NIM request failed for ${nimModel.displayName}. Check your internet connection or verify your nvapi- key in 33 Models."
                 )
             }
             steps.add("NIM endpoint busy — seamlessly routed via Firebase AI Logic")
@@ -284,6 +276,224 @@ class AuraSwarmEngine {
         )
     }
 
+    private suspend fun executeVisionQuery(
+        userPrompt: String,
+        conversationContext: String,
+        selectedSwarm: List<AiModelSpec>,
+        attachedBitmap: Bitmap,
+        onStageUpdate: (SwarmStepUpdate) -> Unit,
+        onStreamToken: (String) -> Unit
+    ): SwarmResult {
+        val steps = mutableListOf("Visual frame locked (${attachedBitmap.width}x${attachedBitmap.height})")
+        val visionModels = selectedSwarm.map { it.displayName }
+
+        val promptText = buildString {
+            append("You are Aura AI, an expert 24/7 autonomous assistant inspecting the user's shared screen or image.\n")
+            append("Respond clearly in the user's language (English or Hinglish if they write in Hinglish).\n")
+            append("Provide immediate, accurate, step-by-step help based directly on what is visible.\n\n")
+            if (conversationContext.isNotBlank()) {
+                append("Recent context:\n$conversationContext\n\n")
+            }
+            append("User request: $userPrompt")
+        }
+
+        if (!isFirebaseAiAvailable) {
+            val nimVisionModel = AiModelsCatalog.allModels.firstOrNull {
+                it.provider == ModelProvider.NVIDIA_NIM && it.supportsVision
+            } ?: defaultNimModel()
+
+            onStageUpdate(
+                SwarmStepUpdate(
+                    activeModelName = nimVisionModel.displayName,
+                    stageLabel = "Analyzing shared screen via NVIDIA NIM Vision...",
+                    progressPercent = 35,
+                    completedSteps = steps.toList()
+                )
+            )
+
+            val nimVisionAnswer = tryCallNvidiaNimVision(
+                modelId = nimVisionModel.id,
+                prompt = promptText,
+                bitmap = attachedBitmap
+            ) ?: throw IllegalStateException(
+                "NVIDIA NIM Vision could not process this screen right now. Verify your nvapi- key in 33 Models and try again."
+            )
+
+            onStreamToken(nimVisionAnswer)
+            steps.add("Screen insights synthesized by ${nimVisionModel.displayName}")
+            onStageUpdate(
+                SwarmStepUpdate(
+                    activeModelName = nimVisionModel.displayName,
+                    stageLabel = "Screen analysis complete",
+                    progressPercent = 100,
+                    completedSteps = steps.toList()
+                )
+            )
+            return SwarmResult(
+                finalText = nimVisionAnswer,
+                primaryEngineLabel = "${nimVisionModel.displayName} (NIM Vision)",
+                collaboratingModels = listOf(nimVisionModel.displayName),
+                searchSources = emptyList(),
+                usedWebSearch = false,
+                steps = steps
+            )
+        }
+
+        onStageUpdate(
+            SwarmStepUpdate(
+                activeModelName = "Gemini 3.8 Flash Vision",
+                stageLabel = "Inspecting shared screen & UI context...",
+                progressPercent = 30,
+                completedSteps = steps.toList()
+            )
+        )
+
+        val accumulated = StringBuilder()
+        try {
+            withTimeout(60_000L) {
+                flashModel.generateContentStream(
+                    content {
+                        image(attachedBitmap)
+                        text(promptText)
+                    }
+                ).collect { chunk ->
+                    val piece = chunk.text.orEmpty()
+                    if (piece.isNotEmpty()) {
+                        accumulated.append(piece)
+                        onStreamToken(accumulated.toString())
+                    }
+                }
+            }
+        } catch (e: TimeoutCancellationException) {
+            Log.e(TAG, "Vision stream timed out", e)
+            throw IllegalStateException("Screen analysis timed out after 60 seconds. Please retry.")
+        } catch (e: CancellationException) {
+            throw e
+        }
+
+        val finalAnswer = accumulated.toString().trim()
+            .ifBlank { throw IllegalStateException("Vision model returned an empty response.") }
+
+        steps.add("Screen insights synthesized by Vision Swarm")
+        onStageUpdate(
+            SwarmStepUpdate(
+                activeModelName = "Vision Swarm",
+                stageLabel = "Screen analysis complete",
+                progressPercent = 100,
+                completedSteps = steps.toList()
+            )
+        )
+
+        return SwarmResult(
+            finalText = finalAnswer,
+            primaryEngineLabel = "Aura Vision Swarm (${visionModels.size} Models)",
+            collaboratingModels = visionModels,
+            searchSources = emptyList(),
+            usedWebSearch = false,
+            steps = steps
+        )
+    }
+
+    private suspend fun executePureNimCollaborativeSwarm(
+        userPrompt: String,
+        conversationContext: String,
+        selectedSwarm: List<AiModelSpec>,
+        onStageUpdate: (SwarmStepUpdate) -> Unit,
+        onStreamToken: (String) -> Unit
+    ): SwarmResult = coroutineScope {
+        val nimPool = selectedSwarm.filter { it.provider == ModelProvider.NVIDIA_NIM }
+            .ifEmpty {
+                AiModelsCatalog.allModels.filter { it.provider == ModelProvider.NVIDIA_NIM }.take(3)
+            }
+        val specialistA = nimPool.getOrElse(0) { defaultNimModel() }
+        val specialistB = nimPool.getOrElse(1) {
+            AiModelsCatalog.allModels.first { it.provider == ModelProvider.NVIDIA_NIM && it.id != specialistA.id }
+        }
+        val synthesizer = nimPool.getOrElse(2) { defaultNimModel() }
+        val teamNames = listOf(specialistA.displayName, specialistB.displayName, synthesizer.displayName).distinct()
+
+        val steps = mutableListOf("NIM Swarm Router picked ${teamNames.joinToString(" + ")}")
+        onStageUpdate(
+            SwarmStepUpdate(
+                activeModelName = specialistA.displayName,
+                stageLabel = "Stage 1/2: Parallel NVIDIA NIM reasoning...",
+                progressPercent = 30,
+                completedSteps = steps.toList()
+            )
+        )
+
+        val draftADeferred = async {
+            tryCallNvidiaNim(
+                model = specialistA,
+                prompt = "Provide concise, high-signal technical & strategic analysis (max 240 words) for: $userPrompt",
+                context = conversationContext
+            )
+        }
+        val draftBDeferred = async {
+            tryCallNvidiaNim(
+                model = specialistB,
+                prompt = "Provide an alternative verification, actionable steps & edge-case check (max 220 words) for: $userPrompt",
+                context = ""
+            )
+        }
+
+        val draftA = draftADeferred.await().orEmpty()
+        val draftB = draftBDeferred.await().orEmpty()
+
+        if (draftA.isBlank() && draftB.isBlank()) {
+            throw IllegalStateException(
+                "NVIDIA NIM models did not respond. Please verify your internet connection and nvapi- key in the 33 Models tab."
+            )
+        }
+
+        steps.add("${specialistA.displayName} & ${specialistB.displayName} finished parallel pass")
+        onStageUpdate(
+            SwarmStepUpdate(
+                activeModelName = synthesizer.displayName,
+                stageLabel = "Stage 2/2: Synthesizing Max Power answer...",
+                progressPercent = 75,
+                completedSteps = steps.toList()
+            )
+        )
+
+        val synthesisPrompt = buildString {
+            append("You are Aura AI's Max Power Multi-Model Synthesizer.\n")
+            append("Combine the best insights from ${teamNames.joinToString(", ")}.\n")
+            append("Respond in the user's language (English or Hinglish). Make the answer crisp, structured, and actionable.\n\n")
+            if (conversationContext.isNotBlank()) {
+                append("Conversation Context:\n$conversationContext\n\n")
+            }
+            append("User Request:\n$userPrompt\n\n")
+            if (draftA.isNotBlank()) append("--- ${specialistA.displayName} ---\n$draftA\n\n")
+            if (draftB.isNotBlank()) append("--- ${specialistB.displayName} ---\n$draftB\n\n")
+            append("Synthesize the strongest verified final answer:")
+        }
+
+        val finalText = tryCallNvidiaNim(synthesizer, synthesisPrompt, "")
+            ?.takeIf { it.isNotBlank() }
+            ?: listOf(draftA, draftB).first { it.isNotBlank() }
+
+        onStreamToken(finalText)
+        steps.add("NVIDIA NIM Max Power synthesis complete")
+        onStageUpdate(
+            SwarmStepUpdate(
+                activeModelName = "NVIDIA NIM Swarm",
+                stageLabel = "All ${teamNames.size} models finished",
+                progressPercent = 100,
+                completedSteps = steps.toList()
+            )
+        )
+
+        SwarmResult(
+            finalText = finalText,
+            primaryEngineLabel = "NVIDIA NIM Max Swarm (${teamNames.size} Models)",
+            collaboratingModels = teamNames,
+            searchSources = emptyList(),
+            usedWebSearch = false,
+            steps = steps
+        )
+    }
+
     private suspend fun executeCollaborativeSwarm(
         userPrompt: String,
         conversationContext: String,
@@ -310,7 +520,7 @@ class AuraSwarmEngine {
 
         val collectedSources = mutableListOf<String>()
 
-        // Run Specialist A (NVIDIA NIM if configured, else Gemini specialist) + Specialist B (Google Search or Deep Logic) in parallel!
+        // Run Specialist A (NVIDIA NIM if configured, else Gemini specialist) + Specialist B (Google Search or Deep Logic) in parallel
         val specialistADeferred = async {
             if (specialistA.provider == ModelProvider.NVIDIA_NIM && NvidiaNimClient.isConfigured()) {
                 tryCallNvidiaNim(
@@ -400,35 +610,35 @@ class AuraSwarmEngine {
     }
 
     /**
-     * Splits a complex user goal into 3-5 concrete parallel tasks using Gemini Structured JSON output.
+     * Splits a complex user goal into 3-5 concrete parallel tasks using Gemini Structured JSON output
+     * (or NVIDIA NIM JSON fallback on standalone APK builds).
      */
     suspend fun splitGoalIntoTasks(goal: String): List<PlannedSubTask> {
+        requireAnyBackendReady()
+
         val prompt = """
             Break down the following user goal into 3 to 5 clear, parallelizable autonomous tasks that an AI assistant swarm can execute immediately.
             Keep titles short and punchy. Match the user's language (English or Hinglish).
             Goal: $goal
         """.trimIndent()
 
+        if (!isFirebaseAiAvailable) {
+            val nimJsonPrompt = """
+                $prompt
+                Respond ONLY with valid JSON matching this exact structure (no markdown fences):
+                {"tasks":[{"title":"Short title","prompt":"Full instructions","category":"GENERAL|RESEARCH|CODE|WRITING|PLANNING|SCREEN|AUTOMATION","priority":"LOW|NORMAL|HIGH|URGENT"}]}
+            """.trimIndent()
+            val raw = tryCallNvidiaNim(defaultNimModel(), nimJsonPrompt, "")
+                ?: throw IllegalStateException("Task planner could not reach NVIDIA NIM. Check your API key in 33 Models.")
+            return parsePlannedTasksJson(raw, goal)
+        }
+
         try {
             val response = withTimeout(45_000L) {
                 taskSplitterModel.generateContent(prompt)
             }
             val rawJson = response.text ?: throw IllegalStateException("Task planner returned empty output.")
-            val root = JSONObject(rawJson)
-            val arr = root.getJSONArray("tasks")
-            val planned = mutableListOf<PlannedSubTask>()
-            for (i in 0 until arr.length()) {
-                val obj = arr.getJSONObject(i)
-                planned.add(
-                    PlannedSubTask(
-                        title = obj.optString("title", "Sub-task ${i + 1}").take(150),
-                        prompt = obj.optString("prompt", goal).take(3800),
-                        category = obj.optString("category", "GENERAL"),
-                        priority = obj.optString("priority", "NORMAL")
-                    )
-                )
-            }
-            return planned
+            return parsePlannedTasksJson(rawJson, goal)
         } catch (e: TimeoutCancellationException) {
             Log.e(TAG, "Task splitter timed out", e)
             throw IllegalStateException("Task planning timed out. Please try again.")
@@ -438,6 +648,43 @@ class AuraSwarmEngine {
             Log.e(TAG, "Task splitting failed", e)
             throw e
         }
+    }
+
+    private fun parsePlannedTasksJson(rawOutput: String, fallbackGoal: String): List<PlannedSubTask> {
+        val cleaned = rawOutput
+            .trim()
+            .removePrefix("```json")
+            .removePrefix("```")
+            .removeSuffix("```")
+            .trim()
+        val jsonStart = cleaned.indexOf('{')
+        val jsonEnd = cleaned.lastIndexOf('}')
+        val slice = if (jsonStart >= 0 && jsonEnd > jsonStart) {
+            cleaned.substring(jsonStart, jsonEnd + 1)
+        } else {
+            cleaned
+        }
+        val root = JSONObject(slice)
+        val arr: JSONArray = root.getJSONArray("tasks")
+        val planned = mutableListOf<PlannedSubTask>()
+        for (i in 0 until arr.length()) {
+            val obj = arr.getJSONObject(i)
+            planned.add(
+                PlannedSubTask(
+                    title = obj.optString("title", "Sub-task ${i + 1}").take(150),
+                    prompt = obj.optString("prompt", fallbackGoal).take(3800),
+                    category = obj.optString("category", "GENERAL"),
+                    priority = obj.optString("priority", "NORMAL")
+                )
+            )
+        }
+        return planned
+    }
+
+    private fun defaultNimModel(): AiModelSpec {
+        return AiModelsCatalog.allModels.firstOrNull {
+            it.id == "meta/llama-3.3-70b-instruct"
+        } ?: AiModelsCatalog.allModels.first { it.provider == ModelProvider.NVIDIA_NIM }
     }
 
     private suspend fun runFastSpecialist(model: AiModelSpec, prompt: String): String {
@@ -545,6 +792,46 @@ class AuraSwarmEngine {
             throw e
         } catch (e: Exception) {
             Log.w(TAG, "NVIDIA NIM call failed for ${model.id}: ${e.message}")
+            null
+        }
+    }
+
+    private suspend fun tryCallNvidiaNimVision(
+        modelId: String,
+        prompt: String,
+        bitmap: Bitmap
+    ): String? {
+        return try {
+            withTimeout(55_000L) {
+                val out = ByteArrayOutputStream()
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 78, out)
+                val base64 = Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+                val dataUrl = "data:image/jpeg;base64,$base64"
+
+                val response = NvidiaNimClient.service.visionCompletion(
+                    authorization = NvidiaNimClient.authHeader(),
+                    request = NimVisionChatRequest(
+                        model = modelId,
+                        messages = listOf(
+                            NimVisionMessage(
+                                role = "user",
+                                content = listOf(
+                                    NimVisionContentPart(type = "text", text = prompt),
+                                    NimVisionContentPart(
+                                        type = "image_url",
+                                        imageUrl = NimImageUrl(url = dataUrl)
+                                    )
+                                )
+                            )
+                        )
+                    )
+                )
+                response.choices?.firstOrNull()?.message?.content?.trim()
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "NVIDIA NIM vision call failed for $modelId: ${e.message}")
             null
         }
     }

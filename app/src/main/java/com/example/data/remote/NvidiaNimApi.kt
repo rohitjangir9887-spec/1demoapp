@@ -13,6 +13,9 @@ import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
@@ -33,6 +36,33 @@ data class NimChatRequest(
     val messages: List<NimMessage>,
     val temperature: Double = 0.6,
     @Json(name = "max_tokens") val maxTokens: Int = 2048,
+    val stream: Boolean = false
+)
+
+@JsonClass(generateAdapter = true)
+data class NimImageUrl(
+    val url: String
+)
+
+@JsonClass(generateAdapter = true)
+data class NimVisionContentPart(
+    val type: String,
+    val text: String? = null,
+    @Json(name = "image_url") val imageUrl: NimImageUrl? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class NimVisionMessage(
+    val role: String,
+    val content: List<NimVisionContentPart>
+)
+
+@JsonClass(generateAdapter = true)
+data class NimVisionChatRequest(
+    val model: String,
+    val messages: List<NimVisionMessage>,
+    val temperature: Double = 0.4,
+    @Json(name = "max_tokens") val maxTokens: Int = 1536,
     val stream: Boolean = false
 )
 
@@ -61,6 +91,12 @@ interface NvidiaNimService {
         @Header("Authorization") authorization: String,
         @Body request: NimChatRequest
     ): NimChatResponse
+
+    @POST("v1/chat/completions")
+    suspend fun visionCompletion(
+        @Header("Authorization") authorization: String,
+        @Body request: NimVisionChatRequest
+    ): NimChatResponse
 }
 
 object NvidiaNimClient {
@@ -68,6 +104,9 @@ object NvidiaNimClient {
     private const val PREFS = "nim_private_settings"
     private const val KEY_ALIAS = "niva_nvidia_key_v1"
     @Volatile private var runtimeKey = ""
+
+    private val _isConfiguredFlow = MutableStateFlow(false)
+    val isConfiguredFlow: StateFlow<Boolean> = _isConfiguredFlow.asStateFlow()
 
     /** Load only from this device's encrypted private store, never from the APK. */
     fun initialize(context: Context) {
@@ -84,6 +123,7 @@ object NvidiaNimClient {
                 String(cipher.doFinal(Base64.decode(encrypted, Base64.NO_WRAP)), Charsets.UTF_8)
             }
         } catch (_: Exception) { "" }
+        _isConfiguredFlow.value = runtimeKey.isNotBlank()
     }
 
     fun saveKey(context: Context, input: String) {
@@ -92,6 +132,7 @@ object NvidiaNimClient {
         if (normalized.isEmpty()) {
             prefs.edit().remove("iv").remove("encrypted").apply()
             runtimeKey = ""
+            _isConfiguredFlow.value = false
             return
         }
         val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
@@ -115,6 +156,7 @@ object NvidiaNimClient {
             .putString("encrypted", Base64.encodeToString(encrypted, Base64.NO_WRAP))
             .commit()) { "Could not save local API key" }
         runtimeKey = normalized
+        _isConfiguredFlow.value = true
     }
 
     fun isConfigured(): Boolean = runtimeKey.isNotBlank()

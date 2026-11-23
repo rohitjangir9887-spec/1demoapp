@@ -483,7 +483,7 @@ private fun TaskSwarmCard(
 
                 IconButton(
                     onClick = onDelete,
-                    modifier = Modifier.size(36.dp)
+                    modifier = Modifier.size(48.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.DeleteOutline,

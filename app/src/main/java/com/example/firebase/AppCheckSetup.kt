@@ -20,6 +20,10 @@ fun configureAppCheck(context: Context, intent: Intent?) {
         if (FirebaseApp.getApps(context).isEmpty()) {
             FirebaseApp.initializeApp(context)
         }
+        if (!FirebaseRuntime.isFirebaseConfigured(context)) {
+            Log.i(TAG, "Standalone build without provisioned Firebase backend; skipping App Check.")
+            return
+        }
 
         if (BuildConfig.DEBUG) {
             val debugToken = intent?.getStringExtra(DEBUG_TOKEN_EXTRA)

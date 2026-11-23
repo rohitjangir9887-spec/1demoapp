@@ -29,7 +29,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.tasks.await
 
-class AuraRepository(private val db: FirebaseFirestore) {
+class AuraRepository(private val db: FirebaseFirestore) : AuraDataSource {
 
     // CRITICAL: Always initialize with the named R.string.firestore_database_id
     constructor(context: Context) : this(
@@ -45,7 +45,7 @@ class AuraRepository(private val db: FirebaseFirestore) {
             ?: throw IllegalStateException("User must be signed in with Google before accessing Firestore.")
     }
 
-    suspend fun ensureUserProfile(displayName: String?): Result<Unit> {
+    override suspend fun ensureUserProfile(displayName: String?): Result<Unit> {
         val uid = auth.currentUser?.uid ?: return Result.failure(IllegalStateException("Unauthenticated"))
         val path = "users/$uid"
         return try {
@@ -73,7 +73,7 @@ class AuraRepository(private val db: FirebaseFirestore) {
         }
     }
 
-    fun observeUserProfile(): Flow<UserProfile> = flow {
+    override fun observeUserProfile(): Flow<UserProfile> = flow {
         val uid = requireUserId()
         val path = "users/$uid"
         emitAll(
@@ -97,7 +97,7 @@ class AuraRepository(private val db: FirebaseFirestore) {
         )
     }
 
-    suspend fun updatePreferences(
+    override suspend fun updatePreferences(
         preferredModelId: String,
         swarmEnabled: Boolean,
         maxPowerEnabled: Boolean,
@@ -126,7 +126,7 @@ class AuraRepository(private val db: FirebaseFirestore) {
         }
     }
 
-    suspend fun incrementSwarmRuns(): Result<Unit> {
+    override suspend fun incrementSwarmRuns(): Result<Unit> {
         var path = "users/${auth.currentUser?.uid ?: "unauthenticated"}"
         return try {
             val uid = requireUserId()
@@ -149,7 +149,7 @@ class AuraRepository(private val db: FirebaseFirestore) {
 
     // --- 24h Autonomous Tasks ---
 
-    fun observeTasks(): Flow<List<AssistantTask>> = flow {
+    override fun observeTasks(): Flow<List<AssistantTask>> = flow {
         val uid = requireUserId()
         val path = "users/$uid/tasks"
         emitAll(
@@ -173,7 +173,7 @@ class AuraRepository(private val db: FirebaseFirestore) {
         )
     }
 
-    suspend fun createTask(
+    override suspend fun createTask(
         title: String,
         prompt: String,
         category: TaskCategory,
@@ -213,7 +213,7 @@ class AuraRepository(private val db: FirebaseFirestore) {
         }
     }
 
-    suspend fun updateTaskExecution(
+    override suspend fun updateTaskExecution(
         taskId: String,
         status: TaskStatus,
         assignedModels: List<String>,
@@ -247,7 +247,7 @@ class AuraRepository(private val db: FirebaseFirestore) {
         }
     }
 
-    suspend fun retryFailedTask(taskId: String): Result<Unit> {
+    override suspend fun retryFailedTask(taskId: String): Result<Unit> {
         var path = "users/${auth.currentUser?.uid ?: "unauthenticated"}/tasks/$taskId"
         return try {
             val uid = requireUserId()
@@ -272,7 +272,7 @@ class AuraRepository(private val db: FirebaseFirestore) {
         }
     }
 
-    suspend fun deleteTask(taskId: String): Result<Unit> {
+    override suspend fun deleteTask(taskId: String): Result<Unit> {
         var path = "users/${auth.currentUser?.uid ?: "unauthenticated"}/tasks/$taskId"
         return try {
             val uid = requireUserId()
@@ -291,7 +291,7 @@ class AuraRepository(private val db: FirebaseFirestore) {
 
     // --- Chat Messages ---
 
-    fun observeMessages(): Flow<List<ChatMessage>> = flow {
+    override fun observeMessages(): Flow<List<ChatMessage>> = flow {
         val uid = requireUserId()
         val path = "users/$uid/messages"
         emitAll(
@@ -315,14 +315,14 @@ class AuraRepository(private val db: FirebaseFirestore) {
         )
     }
 
-    suspend fun addMessage(
+    override suspend fun addMessage(
         role: MessageRole,
         content: String,
         modelUsed: String,
-        swarmModels: List<String> = emptyList(),
-        searchSources: List<String> = emptyList(),
-        usedWebSearch: Boolean = false,
-        hasScreenContext: Boolean = false
+        swarmModels: List<String>,
+        searchSources: List<String>,
+        usedWebSearch: Boolean,
+        hasScreenContext: Boolean
     ): Result<Unit> {
         var path = "users/${auth.currentUser?.uid ?: "unauthenticated"}/messages"
         return try {
@@ -349,7 +349,7 @@ class AuraRepository(private val db: FirebaseFirestore) {
         }
     }
 
-    suspend fun clearChatHistory(messageIds: List<String>): Result<Unit> {
+    override suspend fun clearChatHistory(messageIds: List<String>): Result<Unit> {
         var path = "users/${auth.currentUser?.uid ?: "unauthenticated"}/messages"
         return try {
             val uid = requireUserId()

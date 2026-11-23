@@ -37,6 +37,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.Login
 import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.CameraAlt
@@ -89,9 +90,11 @@ import com.example.ui.theme.SlateMist
 fun ScreenHubScreen(
     screenState: ScreenCaptureState,
     profile: UserProfile,
+    isSignedIn: Boolean,
     userEmail: String?,
     completedTaskCount: Int,
     onAnalyzeScreenInChat: (String) -> Unit,
+    onSignInClick: () -> Unit,
     onSignOut: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -392,10 +395,11 @@ fun ScreenHubScreen(
                 )
             }
 
-            // Account & Cloud Sync Card
+            // Account & Optional Cloud Sync Card
             GlassCard(
                 modifier = Modifier.fillMaxWidth(),
-                cornerRadius = 22.dp
+                cornerRadius = 22.dp,
+                accentBorderColor = if (isSignedIn) AuraMint.copy(alpha = 0.4f) else AuraBlue.copy(alpha = 0.4f)
             ) {
                 Row(
                     modifier = Modifier
@@ -406,32 +410,59 @@ fun ScreenHubScreen(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = profile.displayName,
+                            text = if (isSignedIn) profile.displayName else "Guest Mode (No Login Required)",
                             style = MaterialTheme.typography.titleMedium,
                             color = PearlWhite
                         )
                         Text(
-                            text = userEmail ?: "Google Cloud Synced",
+                            text = if (isSignedIn) {
+                                userEmail ?: "Google Cloud Synced"
+                            } else {
+                                "Saved locally on device • Sign in anytime for cloud sync"
+                            },
                             style = MaterialTheme.typography.bodySmall,
                             color = SlateMist
                         )
                     }
-                    OutlinedButton(
-                        onClick = onSignOut,
-                        shape = RoundedCornerShape(14.dp),
-                        border = BorderStroke(1.dp, AuraCoral.copy(alpha = 0.55f)),
-                        modifier = Modifier
-                            .height(46.dp)
-                            .testTag("sign_out_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Rounded.Logout,
-                            contentDescription = "Sign out",
-                            tint = AuraCoral,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text("Sign Out", color = AuraCoral)
+                    Spacer(Modifier.width(10.dp))
+                    if (isSignedIn) {
+                        OutlinedButton(
+                            onClick = onSignOut,
+                            shape = RoundedCornerShape(14.dp),
+                            border = BorderStroke(1.dp, AuraCoral.copy(alpha = 0.55f)),
+                            modifier = Modifier
+                                .height(48.dp)
+                                .testTag("sign_out_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Rounded.Logout,
+                                contentDescription = "Sign out",
+                                tint = AuraCoral,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text("Sign Out", color = AuraCoral)
+                        }
+                    } else {
+                        Button(
+                            onClick = onSignInClick,
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = AuraBlue,
+                                contentColor = Color.White
+                            ),
+                            modifier = Modifier
+                                .height(48.dp)
+                                .testTag("hub_sign_in_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Rounded.Login,
+                                contentDescription = "Sign in with Google",
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text("Sign In")
+                        }
                     }
                 }
             }

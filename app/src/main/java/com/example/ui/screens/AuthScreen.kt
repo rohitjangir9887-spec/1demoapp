@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
@@ -40,9 +41,9 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -60,6 +61,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -84,11 +86,13 @@ import com.example.ui.theme.SlateMist
 @Composable
 fun AuthScreen(
     onAuthSuccess: () -> Unit,
-    onGuestMode: () -> Unit
+    onContinueAsGuest: () -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val credentialManager = remember(context) { CredentialManager.create(context) }
+
+    BackHandler(onBack = onContinueAsGuest)
 
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -348,13 +352,30 @@ fun AuthScreen(
                     }
                 }
 
-                Spacer(Modifier.height(8.dp))
-                TextButton(onClick = onGuestMode, modifier = Modifier.fillMaxWidth()) {
-                    Text("Continue with NVIDIA NIM (no sign-in)", color = AuraNimGreen)
+                Spacer(Modifier.height(12.dp))
+
+                // Optional Login: Continue immediately without signing in
+                OutlinedButton(
+                    onClick = onContinueAsGuest,
+                    enabled = !isLoading,
+                    shape = RoundedCornerShape(18.dp),
+                    border = BorderStroke(1.dp, AuraCyan.copy(alpha = 0.55f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(54.dp)
+                        .testTag("continue_guest_button")
+                ) {
+                    Text(
+                        text = stringResource(R.string.auth_continue_guest),
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = AuraCyan
+                    )
                 }
+
                 Spacer(Modifier.height(12.dp))
                 Text(
-                    text = "Syncs your 24h tasks, chats, and 33-model preferences securely across devices.",
+                    text = stringResource(R.string.auth_optional_hint),
                     style = MaterialTheme.typography.labelSmall,
                     color = SlateMist,
                     textAlign = TextAlign.Center

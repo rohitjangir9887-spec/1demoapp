@@ -9,6 +9,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.data.ai.AuraSwarmEngine
 import com.example.data.ai.SwarmStepUpdate
+import com.example.data.local.LocalAuraStore
 import com.example.data.model.AiModelsCatalog
 import com.example.data.model.AssistantTask
 import com.example.data.model.ChatMessage
@@ -18,11 +19,12 @@ import com.example.data.model.TaskCategory
 import com.example.data.model.TaskPriority
 import com.example.data.model.TaskStatus
 import com.example.data.model.UserProfile
+import com.example.data.remote.NvidiaNimClient
+import com.example.data.repository.AuraDataSource
 import com.example.data.repository.AuraRepository
+import com.example.firebase.FirebaseRuntime
 import com.example.screen.ScreenCaptureState
 import com.example.screen.ScreenCaptureStore
-import com.google.firebase.Firebase
-import com.google.firebase.auth.auth
 import com.google.firebase.firestore.FirebaseFirestoreException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -61,11 +63,17 @@ data class LiveSwarmActivity(
 
 class AuraViewModel(
     application: Application,
-    private val repository: AuraRepository = AuraRepository(application.applicationContext),
-    private val swarmEngine: AuraSwarmEngine = AuraSwarmEngine()
+    val isCloudSynced: Boolean,
+    private val repository: AuraDataSource = if (isCloudSynced && FirebaseRuntime.isFirebaseConfigured(application)) {
+        AuraRepository(application.applicationContext)
+    } else {
+        LocalAuraStore(application.applicationContext)
+    },
+    private val swarmEngine: AuraSwarmEngine = AuraSwarmEngine(application.applicationContext)
 ) : AndroidViewModel(application) {
 
     val screenCaptureState: StateFlow<ScreenCaptureState> = ScreenCaptureStore.state
+    val isNvidiaNimConfiguredFlow: StateFlow<Boolean> = NvidiaNimClient.isConfiguredFlow
 
     val userProfile: StateFlow<UserProfile> = repository.observeUserProfile()
         .catch { error ->
@@ -74,12 +82,12 @@ class AuraViewModel(
                 .firstOrNull()
             if (firestoreError == null && error is CancellationException) throw error
             Log.e(TAG, "Profile stream error: ${(firestoreError ?: error).message}")
-            emit(UserProfile())
+            emit(UserProfile(displayName = if (isCloudSynced) "Aura User" else "Guest Mode"))
         }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000L),
-            initialValue = UserProfile()
+            initialValue = UserProfile(displayName = if (isCloudSynced) "Aura User" else "Guest Mode")
         )
 
     val tasksState: StateFlow<DataUiState<List<AssistantTask>>> = repository.observeTasks()
@@ -137,7 +145,11 @@ class AuraViewModel(
 
     init {
         viewModelScope.launch {
-            val displayName = Firebase.auth.currentUser?.displayName ?: "Aura User"
+            val displayName = if (isCloudSynced) {
+                FirebaseRuntime.currentUserOrNull(application)?.displayName ?: "Aura User"
+            } else {
+                "Guest Mode"
+            }
             repository.ensureUserProfile(displayName)
         }
         start24hWatchdogLoop()
@@ -560,10 +572,13 @@ class AuraViewModel(
         }
     }
 
-    class Factory(private val application: Application) : ViewModelProvider.Factory {
+    class Factory(
+        private val application: Application,
+        private val isCloudSynced: Boolean
+    ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            return AuraViewModel(application) as T
+            return AuraViewModel(application = application, isCloudSynced = isCloudSynced) as T
         }
     }
 }

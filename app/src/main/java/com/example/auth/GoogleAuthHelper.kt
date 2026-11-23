@@ -8,29 +8,18 @@ import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialCancellationException
+import com.example.R
+import com.example.firebase.FirebaseRuntime
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential.Companion.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
-import com.google.firebase.Firebase
 import com.google.firebase.auth.GoogleAuthProvider
-import com.google.firebase.auth.auth
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
-
-/**
- * google-services.json generates default_web_client_id only for configured Firebase projects.
- * Avoid a hard-coded R.string reference so clean CI builds without Firebase credentials compile.
- * A missing value fails gracefully, rather than launching Google Identity with a fake client ID.
- */
-private fun googleWebClientId(context: Context): String? {
-    val id = context.resources.getIdentifier("default_web_client_id", "string", context.packageName)
-    if (id == 0) return null
-    return context.getString(id).trim().takeIf { it.isNotBlank() }
-}
 
 fun attemptAutoSignIn(
     context: Context,
@@ -39,11 +28,22 @@ fun attemptAutoSignIn(
     onUnauthenticated: () -> Unit,
     scope: CoroutineScope
 ) {
-    if (Firebase.auth.currentUser != null) {
+    val auth = FirebaseRuntime.authOrNull(context)
+    if (auth == null) {
+        onUnauthenticated()
+        return
+    }
+    if (auth.currentUser != null) {
         onAuthSuccess()
         return
     }
-    val clientId = googleWebClientId(context) ?: run {
+    val clientId = try {
+        context.getString(R.string.default_web_client_id)
+    } catch (_: Exception) {
+        onUnauthenticated()
+        return
+    }
+    if (clientId.isBlank() || clientId == FirebaseRuntime.CI_PLACEHOLDER_CLIENT_ID) {
         onUnauthenticated()
         return
     }
@@ -63,7 +63,7 @@ fun attemptAutoSignIn(
             val cred = credentialManager.getCredential(context, request).credential
             if (cred is CustomCredential && cred.type == TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
                 val token = GoogleIdTokenCredential.createFrom(cred.data).idToken
-                Firebase.auth.signInWithCredential(
+                auth.signInWithCredential(
                     GoogleAuthProvider.getCredential(token, null)
                 ).await()
                 onAuthSuccess()
@@ -84,8 +84,19 @@ fun onGoogleSignInClicked(
     scope: CoroutineScope,
     onAuthCancelled: () -> Unit = {}
 ) {
-    val clientId = googleWebClientId(context) ?: run {
-        onAuthError("Google Sign-In is not configured for this APK. Configure Firebase Google Sign-In and a valid web OAuth client ID.")
+    val auth = FirebaseRuntime.authOrNull(context)
+    if (auth == null) {
+        onAuthError("Google Cloud Sync is not configured in this standalone build. Continue in Guest Mode — all features work locally with your NVIDIA NIM key.")
+        return
+    }
+    val clientId = try {
+        context.getString(R.string.default_web_client_id)
+    } catch (_: Exception) {
+        onAuthError("Google Sign-In configuration missing. You can continue in Guest Mode without signing in.")
+        return
+    }
+    if (clientId.isBlank() || clientId == FirebaseRuntime.CI_PLACEHOLDER_CLIENT_ID) {
+        onAuthError("Google Cloud Sync is unavailable in this standalone APK. Use Guest Mode (no login needed).")
         return
     }
 
@@ -101,7 +112,7 @@ fun onGoogleSignInClicked(
             val cred = credentialManager.getCredential(activityContext, request).credential
             if (cred is CustomCredential && cred.type == TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
                 val token = GoogleIdTokenCredential.createFrom(cred.data).idToken
-                Firebase.auth.signInWithCredential(
+                auth.signInWithCredential(
                     GoogleAuthProvider.getCredential(token, null)
                 ).await()
                 onAuthSuccess()
@@ -119,6 +130,7 @@ fun onGoogleSignInClicked(
 }
 
 fun signOutUser(
+    context: Context,
     credentialManager: CredentialManager,
     scope: CoroutineScope,
     onSignOutComplete: () -> Unit = {}
@@ -130,7 +142,7 @@ fun signOutUser(
             } catch (e: Exception) {
                 Log.w("Auth", "Failed to clear credential state: ${e.message}")
             } finally {
-                Firebase.auth.signOut()
+                FirebaseRuntime.authOrNull(context)?.signOut()
                 onSignOutComplete()
             }
         }

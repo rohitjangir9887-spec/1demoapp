@@ -36,6 +36,7 @@ jobs:
       - name: Install Android SDK API 36.1
         id: sdk
         run: |
+          yes | sdkmanager --licenses > /dev/null || true
           sdkmanager --install "platforms;android-36.1" "build-tools;36.0.0"
           yes | sdkmanager --licenses > /dev/null || true
 
@@ -45,16 +46,77 @@ jobs:
         with:
           gradle-version: '9.3.1'
 
+      - name: Ensure CI Firebase placeholder config if missing
+        id: firebase_placeholder
+        run: |
+          if [ ! -f app/google-services.json ]; then
+            cat > app/google-services.json << 'EOF'
+          {
+            "project_info": {
+              "project_number": "100000000000",
+              "project_id": "ci-local-placeholder",
+              "storage_bucket": "ci-local-placeholder.appspot.com"
+            },
+            "client": [
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:100000000000:android:0000000000000000000000",
+                  "android_client_info": {
+                    "package_name": "com.aistudio.auraai.k9x4mp"
+                  }
+                },
+                "oauth_client": [
+                  {
+                    "client_id": "ci-local-web-client-id",
+                    "client_type": 3
+                  }
+                ],
+                "api_key": [
+                  {
+                    "current_key": "ci-local-api-key"
+                  }
+                ],
+                "services": {
+                  "appinvite_service": {
+                    "other_platform_oauth_client": [
+                      {
+                        "client_id": "ci-local-web-client-id",
+                        "client_type": 3
+                      }
+                    ]
+                  }
+                }
+              }
+            ],
+            "configuration_version": "1"
+          }
+          EOF
+            echo "Generated temporary CI placeholder app/google-services.json"
+          fi
+
+          if [ ! -f app/src/main/res/values/firebase_applet_config.xml ]; then
+            mkdir -p app/src/main/res/values
+            cat > app/src/main/res/values/firebase_applet_config.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <string name="firestore_database_id" translatable="false">ci-local-db</string>
+          </resources>
+          EOF
+            echo "Generated temporary CI placeholder firebase_applet_config.xml"
+          fi
+
       - name: Generate local debug keystore
         id: keystore
         run: |
-          keytool -genkeypair -v \
-            -keystore debug.keystore \
-            -alias androiddebugkey \
-            -storepass android \
-            -keypass android \
-            -keyalg RSA -keysize 2048 -validity 10000 \
-            -dname "CN=Android Debug,O=Android,C=US"
+          if [ ! -f debug.keystore ]; then
+            keytool -genkeypair -v \
+              -keystore debug.keystore \
+              -alias androiddebugkey \
+              -storepass android \
+              -keypass android \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
 
       - name: Build installable APK and save diagnostics
         id: build
@@ -81,6 +143,7 @@ jobs:
           ANDROID_OUTCOME: ${{ steps.android.outcome }}
           SDK_OUTCOME: ${{ steps.sdk.outcome }}
           GRADLE_OUTCOME: ${{ steps.gradle.outcome }}
+          FIREBASE_PLACEHOLDER_OUTCOME: ${{ steps.firebase_placeholder.outcome }}
           KEYSTORE_OUTCOME: ${{ steps.keystore.outcome }}
           BUILD_OUTCOME: ${{ steps.build.outcome }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -98,6 +161,7 @@ jobs:
             echo "| Android setup | $ANDROID_OUTCOME |"
             echo "| Android SDK packages | $SDK_OUTCOME |"
             echo "| Gradle setup | $GRADLE_OUTCOME |"
+            echo "| Firebase CI config | $FIREBASE_PLACEHOLDER_OUTCOME |"
             echo "| Debug keystore | $KEYSTORE_OUTCOME |"
             echo "| Android compile | $BUILD_OUTCOME |"
             if [ -f build-output.log ] && [ "$BUILD_OUTCOME" != "success" ]; then

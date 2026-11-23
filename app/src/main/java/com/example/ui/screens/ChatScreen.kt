@@ -1,14 +1,25 @@
 package com.example.ui.screens
 
+import android.Manifest
 import android.app.Activity
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.provider.Settings
 import android.speech.RecognizerIntent
 import android.speech.tts.TextToSpeech
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -40,10 +51,13 @@ import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Code
 import androidx.compose.material.icons.rounded.DeleteSweep
+import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material.icons.rounded.Hearing
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.ScreenShare
+import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.TaskAlt
 import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material3.CircularProgressIndicator
@@ -60,19 +74,24 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.R
 import com.example.data.model.ChatMessage
 import com.example.data.model.MessageRole
 import com.example.data.model.UserProfile
@@ -82,6 +101,11 @@ import com.example.ui.components.GlassCard
 import com.example.ui.components.GlassChip
 import com.example.ui.components.IosSquircleIcon
 import com.example.ui.components.LiveSwarmPipelineBanner
+import com.example.ui.components.MicrophonePermissionBanner
+import com.example.ui.components.VoiceErrorPill
+import com.example.ui.components.VoiceListeningPanel
+import com.example.voice.VoiceCommandResult
+import com.example.voice.VoiceInputController
 import com.example.ui.theme.AuraAmber
 import com.example.ui.theme.AuraBlue
 import com.example.ui.theme.AuraCoral
@@ -105,17 +129,32 @@ fun ChatScreen(
     liveSwarm: LiveSwarmActivity,
     screenCaptureState: ScreenCaptureState,
     onSendPrompt: (prompt: String, useSearch: Boolean, attachScreen: Boolean) -> Unit,
+    onInitiateVoiceTask: (title: String, prompt: String) -> Unit,
     onToggleSwarm: (Boolean) -> Unit,
     onToggleSearch: (Boolean) -> Unit,
     onOpenScreenShareTab: () -> Unit,
     onClearChat: () -> Unit,
+    isCloudSynced: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     var inputText by remember { mutableStateOf("") }
+    var handsFreeAutoSend by remember { mutableStateOf(true) }
     var attachScreenEnabled by remember(screenCaptureState.latestBitmap) {
         mutableStateOf(screenCaptureState.latestBitmap != null)
     }
+
+    // Runtime RECORD_AUDIO permission state
+    var hasMicPermission by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.RECORD_AUDIO
+            ) == PackageManager.PERMISSION_GRANTED
+        )
+    }
+    var showMicPermissionBanner by remember { mutableStateOf(false) }
+    var isMicPermanentlyDenied by remember { mutableStateOf(false) }
 
     // Text-to-Speech engine for reading assistant replies aloud
     var ttsEngine by remember { mutableStateOf<TextToSpeech?>(null) }
@@ -133,18 +172,118 @@ fun ChatScreen(
         }
     }
 
-    // Android Speech Recognizer launcher (zero extra permission via RecognizerIntent)
-    val voiceLauncher = rememberLauncherForActivityResult(
+    // Handle finalized voice transcript (hands-free task initiation OR chat send OR dictate)
+    val handleVoiceTranscript: (String) -> Unit = { spoken ->
+        val clean = spoken.trim()
+        if (clean.isNotEmpty()) {
+            if (handsFreeAutoSend && !liveSwarm.isRunning) {
+                when (val parsed = VoiceInputController.parseVoiceCommand(clean)) {
+                    is VoiceCommandResult.TaskInitiation -> {
+                        onInitiateVoiceTask(parsed.title, parsed.prompt)
+                    }
+                    is VoiceCommandResult.ChatPrompt -> {
+                        onSendPrompt(
+                            parsed.text,
+                            profile.autoSearchEnabled,
+                            attachScreenEnabled && screenCaptureState.latestBitmap != null
+                        )
+                    }
+                }
+            } else {
+                inputText = if (inputText.isBlank()) clean else "$inputText $clean"
+            }
+        }
+    }
+
+    val latestHandleVoiceTranscript by rememberUpdatedState(handleVoiceTranscript)
+
+    // Activity fallback when SpeechRecognizer service isn't available on the device
+    val fallbackVoiceLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
             val matches = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
             val spoken = matches?.firstOrNull().orEmpty()
             if (spoken.isNotBlank()) {
-                inputText = if (inputText.isBlank()) spoken else "$inputText $spoken"
+                latestHandleVoiceTranscript(spoken)
             }
         }
     }
+
+    val voiceController = remember(context) {
+        VoiceInputController(
+            context = context.applicationContext,
+            onFinalTranscript = { transcript -> latestHandleVoiceTranscript(transcript) },
+            onFallbackToActivityRecognizer = {
+                val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                    putExtra(
+                        RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                        RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
+                    )
+                    putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak to Aura AI…")
+                }
+                runCatching { fallbackVoiceLauncher.launch(intent) }
+            }
+        )
+    }
+
+    DisposableEffect(voiceController) {
+        onDispose { voiceController.destroy() }
+    }
+
+    val voiceState by voiceController.state.collectAsStateWithLifecycle()
+
+    // Runtime microphone permission launcher
+    val micPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        hasMicPermission = granted
+        if (granted) {
+            showMicPermissionBanner = false
+            isMicPermanentlyDenied = false
+            voiceController.startListening()
+        } else {
+            val activity = context as? Activity
+            val canAskAgain = activity?.let {
+                ActivityCompat.shouldShowRequestPermissionRationale(
+                    it,
+                    Manifest.permission.RECORD_AUDIO
+                )
+            } ?: true
+            isMicPermanentlyDenied = !canAskAgain
+            showMicPermissionBanner = true
+        }
+    }
+
+    val onVoiceButtonClicked: () -> Unit = {
+        val currentlyGranted = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+        hasMicPermission = currentlyGranted
+
+        if (currentlyGranted) {
+            showMicPermissionBanner = false
+            if (voiceState.isListening) {
+                voiceController.stopListening()
+            } else {
+                voiceController.startListening()
+            }
+        } else {
+            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+
+    val micPulseInfinite = rememberInfiniteTransition(label = "micPulse")
+    val micPulseScale by micPulseInfinite.animateFloat(
+        initialValue = 1f,
+        targetValue = if (voiceState.isListening) 1.12f else 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(650, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "micPulseScale"
+    )
 
     val listState = rememberLazyListState()
     val messages = (messagesState as? DataUiState.Success)?.data.orEmpty()
@@ -184,8 +323,10 @@ fun ChatScreen(
                     Text(
                         text = if (profile.swarmEnabled && profile.maxPowerEnabled) {
                             "Max Power Auto-Swarm • 33 Models"
-                        } else {
+                        } else if (isCloudSynced) {
                             "Direct Model • Live Cloud Sync"
+                        } else {
+                            "Direct Model • Local Guest Mode"
                         },
                         style = MaterialTheme.typography.labelSmall,
                         color = AuraCyan
@@ -345,7 +486,7 @@ fun ChatScreen(
                                     attachScreenEnabled = false
                                     ScreenCaptureStore.clearCapturedFrame()
                                 },
-                                modifier = Modifier.size(40.dp)
+                                modifier = Modifier.size(48.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Rounded.Close,
@@ -358,7 +499,37 @@ fun ChatScreen(
                 }
             }
 
-            // Quick Mode Toggle Row (Max Swarm, Google Search, Share Screen)
+            // Microphone Permission Rationale / Denied Banner
+            MicrophonePermissionBanner(
+                visible = showMicPermissionBanner && !hasMicPermission,
+                isPermanentlyDenied = isMicPermanentlyDenied,
+                onRequestPermission = {
+                    micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                },
+                onOpenSettings = {
+                    val settingsIntent = Intent(
+                        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        Uri.fromParts("package", context.packageName, null)
+                    )
+                    runCatching { context.startActivity(settingsIntent) }
+                },
+                onDismiss = { showMicPermissionBanner = false }
+            )
+
+            // Live SpeechRecognizer Waveform & Partial Transcript Overlay
+            VoiceListeningPanel(
+                voiceState = voiceState,
+                handsFreeEnabled = handsFreeAutoSend,
+                onStopListening = { voiceController.stopListening() }
+            )
+
+            // Inline Voice Recognition Error Feedback
+            VoiceErrorPill(
+                errorMessage = voiceState.errorMessage,
+                onDismiss = { voiceController.clearError() }
+            )
+
+            // Quick Mode Toggle Row (Max Swarm, Google Search, Hands-Free Voice, Share Screen)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -366,6 +537,18 @@ fun ChatScreen(
                     .padding(bottom = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                GlassChip(
+                    label = if (handsFreeAutoSend) {
+                        stringResource(R.string.voice_hands_free_on)
+                    } else {
+                        stringResource(R.string.voice_hands_free_off)
+                    },
+                    selected = handsFreeAutoSend,
+                    onClick = { handsFreeAutoSend = !handsFreeAutoSend },
+                    accentColor = AuraCyan,
+                    icon = Icons.Rounded.Hearing,
+                    modifier = Modifier.testTag("toggle_hands_free_chip")
+                )
                 GlassChip(
                     label = if (profile.swarmEnabled) "Auto Swarm ON" else "Single Model",
                     selected = profile.swarmEnabled,
@@ -402,7 +585,10 @@ fun ChatScreen(
             Surface(
                 shape = RoundedCornerShape(26.dp),
                 color = ObsidianSurfaceElevated.copy(alpha = 0.94f),
-                border = BorderStroke(1.dp, ObsidianCardBorder),
+                border = BorderStroke(
+                    1.dp,
+                    if (voiceState.isListening) AuraCoral.copy(alpha = 0.7f) else ObsidianCardBorder
+                ),
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(bottom = 10.dp)
@@ -413,26 +599,39 @@ fun ChatScreen(
                         .padding(horizontal = 8.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(
-                        onClick = {
-                            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                                putExtra(
-                                    RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-                                    RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
-                                )
-                                putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak to Aura AI...")
-                            }
-                            runCatching { voiceLauncher.launch(intent) }
+                    Surface(
+                        onClick = onVoiceButtonClicked,
+                        shape = CircleShape,
+                        color = if (voiceState.isListening) {
+                            AuraCoral.copy(alpha = 0.24f)
+                        } else {
+                            AuraCyan.copy(alpha = 0.14f)
                         },
+                        border = BorderStroke(
+                            1.dp,
+                            if (voiceState.isListening) AuraCoral else AuraCyan.copy(alpha = 0.45f)
+                        ),
                         modifier = Modifier
                             .size(48.dp)
+                            .scale(micPulseScale)
                             .testTag("voice_input_button")
                     ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Mic,
-                            contentDescription = "Voice dictation",
-                            tint = AuraCyan
-                        )
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = if (voiceState.isListening) {
+                                    Icons.Rounded.GraphicEq
+                                } else {
+                                    Icons.Rounded.Mic
+                                },
+                                contentDescription = if (voiceState.isListening) {
+                                    stringResource(R.string.voice_stop_desc)
+                                } else {
+                                    stringResource(R.string.voice_start_desc)
+                                },
+                                tint = if (voiceState.isListening) AuraCoral else AuraCyan,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
                     }
 
                     OutlinedTextField(
@@ -705,7 +904,7 @@ private fun ChatMessageBubble(
                         }
                         IconButton(
                             onClick = { onSpeak(message.content) },
-                            modifier = Modifier.size(36.dp)
+                            modifier = Modifier.size(48.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Rounded.VolumeUp,

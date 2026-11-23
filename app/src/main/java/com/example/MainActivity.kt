@@ -69,13 +69,17 @@ import androidx.credentials.CredentialManager
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.auth.signOutUser
-import com.example.data.remote.NvidiaNimClient
+import com.example.data.local.LocalAuraStore
+import com.example.data.model.ScheduleMode
+import com.example.data.model.TaskCategory
+import com.example.data.model.TaskPriority
 import com.example.data.model.TaskStatus
+import com.example.data.remote.NvidiaNimClient
+import com.example.firebase.FirebaseRuntime
 import com.example.firebase.configureAppCheck
 import com.example.ui.components.AmbientAuraBackground
 import com.example.ui.components.DynamicIslandCapsule
 import com.example.ui.screens.AuthScreen
-import com.example.ui.screens.NvidiaGuestScreen
 import com.example.ui.screens.ChatScreen
 import com.example.ui.screens.ModelsScreen
 import com.example.ui.screens.ScreenHubScreen
@@ -92,10 +96,7 @@ import com.example.ui.theme.PearlWhite
 import com.example.ui.theme.SlateMist
 import com.example.ui.viewmodel.AuraViewModel
 import com.example.ui.viewmodel.DataUiState
-import com.google.firebase.Firebase
-import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.auth.auth
 
 enum class AuraTab(
     val route: String,
@@ -114,11 +115,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Load the user's locally encrypted NVIDIA key before constructing any AI ViewModels.
-        NvidiaNimClient.initialize(applicationContext)
-
         // STEP 1 (MANDATORY): Configure Firebase App Check with launch intent before UI/ViewModels
         configureAppCheck(this, intent)
+
+        // Load the user's locally encrypted NVIDIA key before constructing any AI ViewModels.
+        NvidiaNimClient.initialize(applicationContext)
 
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
@@ -136,49 +137,64 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun AppContent() {
     val context = LocalContext.current
-    var guestMode by rememberSaveable { mutableStateOf(false) }
-    // The repository does not include Firebase project options. Launch NVIDIA-only
-    // chat instead of crashing on Firebase.auth when credentials are unavailable.
-    val firebaseAvailable = remember(context) {
-        runCatching { FirebaseApp.getApps(context).isNotEmpty() }.getOrDefault(false)
-    }
-    if (guestMode || !firebaseAvailable) {
-        NvidiaGuestScreen(
-            onExit = if (firebaseAvailable) ({ guestMode = false }) else null
-        )
-        return
-    }
-    var currentUser by remember { mutableStateOf(Firebase.auth.currentUser) }
+    val firebaseAuth = remember(context) { FirebaseRuntime.authOrNull(context) }
+    var currentUser by remember { mutableStateOf(firebaseAuth?.currentUser) }
+    var showOptionalAuthScreen by rememberSaveable { mutableStateOf(false) }
 
-    DisposableEffect(Unit) {
-        val listener = FirebaseAuth.AuthStateListener { auth ->
-            currentUser = auth.currentUser
+    DisposableEffect(firebaseAuth) {
+        if (firebaseAuth == null) {
+            onDispose {}
+        } else {
+            val listener = FirebaseAuth.AuthStateListener { auth ->
+                currentUser = auth.currentUser
+                if (auth.currentUser != null) {
+                    showOptionalAuthScreen = false
+                }
+            }
+            firebaseAuth.addAuthStateListener(listener)
+            onDispose { firebaseAuth.removeAuthStateListener(listener) }
         }
-        Firebase.auth.addAuthStateListener(listener)
-        onDispose { Firebase.auth.removeAuthStateListener(listener) }
     }
 
-    if (currentUser == null) {
-        AuthScreen(onAuthSuccess = { currentUser = Firebase.auth.currentUser }, onGuestMode = { guestMode = true })
+    if (showOptionalAuthScreen && currentUser == null) {
+        AuthScreen(
+            onAuthSuccess = {
+                currentUser = firebaseAuth?.currentUser
+                showOptionalAuthScreen = false
+            },
+            onContinueAsGuest = {
+                showOptionalAuthScreen = false
+            }
+        )
     } else {
-        val uid = currentUser!!.uid
-        val email = currentUser!!.email
-        key(uid) {
-            AuraMainShell(currentUserId = uid, userEmail = email)
+        val isSignedIn = currentUser != null
+        val sessionKey = currentUser?.uid ?: LocalAuraStore.GUEST_USER_ID
+        val email = currentUser?.email
+        key(sessionKey) {
+            AuraMainShell(
+                sessionKey = sessionKey,
+                isSignedIn = isSignedIn,
+                userEmail = email,
+                onRequestSignIn = { showOptionalAuthScreen = true }
+            )
         }
     }
 }
 
 @Composable
 private fun AuraMainShell(
-    currentUserId: String,
-    userEmail: String?
+    sessionKey: String,
+    isSignedIn: Boolean,
+    userEmail: String?,
+    onRequestSignIn: () -> Unit
 ) {
     val context = LocalContext.current
     val application = context.applicationContext as Application
     val viewModel: AuraViewModel = viewModel(
-        key = currentUserId,
-        factory = remember(application) { AuraViewModel.Factory(application) }
+        key = sessionKey,
+        factory = remember(application, isSignedIn) {
+            AuraViewModel.Factory(application = application, isCloudSynced = isSignedIn)
+        }
     )
     val scope = rememberCoroutineScope()
     val credentialManager = remember(context) { CredentialManager.create(context) }
@@ -190,6 +206,7 @@ private fun AuraMainShell(
     val screenState by viewModel.screenCaptureState.collectAsStateWithLifecycle()
     val isWatchdogActive by viewModel.isWatchdog24hActive.collectAsStateWithLifecycle()
     val isSplittingGoal by viewModel.isSplittingGoal.collectAsStateWithLifecycle()
+    val isNvidiaNimConfigured by viewModel.isNvidiaNimConfiguredFlow.collectAsStateWithLifecycle()
     val bannerError by viewModel.bannerError.collectAsStateWithLifecycle()
     val infoNotice by viewModel.infoNotice.collectAsStateWithLifecycle()
 
@@ -307,8 +324,20 @@ private fun AuraMainShell(
                                     profile = profile,
                                     liveSwarm = liveSwarm,
                                     screenCaptureState = screenState,
+                                    isCloudSynced = isSignedIn,
                                     onSendPrompt = { prompt, useSearch, attachScreen ->
                                         viewModel.sendChatPrompt(prompt, useSearch, attachScreen)
+                                    },
+                                    onInitiateVoiceTask = { title, prompt ->
+                                        viewModel.createTask(
+                                            title = title,
+                                            prompt = prompt,
+                                            category = TaskCategory.AUTOMATION,
+                                            priority = TaskPriority.HIGH,
+                                            scheduleMode = ScheduleMode.CONTINUOUS_24H,
+                                            runImmediately = true
+                                        )
+                                        selectedTab = AuraTab.TASKS
                                     },
                                     onToggleSwarm = { enabled ->
                                         viewModel.updateSwarmSettings(swarmEnabled = enabled)
@@ -341,7 +370,7 @@ private fun AuraMainShell(
 
                                 AuraTab.MODELS -> ModelsScreen(
                                     profile = profile,
-                                    isNvidiaNimConfigured = viewModel.isNvidiaNimConfigured,
+                                    isNvidiaNimConfigured = isNvidiaNimConfigured,
                                     onSelectModel = { viewModel.selectModel(it) },
                                     onUpdateSettings = { swarm, maxPwr, search ->
                                         viewModel.updateSwarmSettings(swarm, maxPwr, search)
@@ -351,6 +380,7 @@ private fun AuraMainShell(
                                 AuraTab.SCREEN -> ScreenHubScreen(
                                     screenState = screenState,
                                     profile = profile,
+                                    isSignedIn = isSignedIn,
                                     userEmail = userEmail,
                                     completedTaskCount = completedTasksCount,
                                     onAnalyzeScreenInChat = { question ->
@@ -361,8 +391,9 @@ private fun AuraMainShell(
                                             includeAttachedScreen = true
                                         )
                                     },
+                                    onSignInClick = onRequestSignIn,
                                     onSignOut = {
-                                        signOutUser(credentialManager, scope)
+                                        signOutUser(context, credentialManager, scope)
                                     }
                                 )
                             }
