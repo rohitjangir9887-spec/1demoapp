@@ -284,9 +284,12 @@ fun ModelsScreen(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 IosSquircleIcon(
+                                    gradientStart = AuraCyan,
+                                    gradientEnd = AuraBlue,
+                                    size = 40.dp,
+                                    cornerRadius = 12.dp,
                                     icon = Icons.Rounded.AutoAwesome,
-                                    tint = AuraCyan,
-                                    background = AuraCyan.copy(alpha = 0.15f)
+                                    contentDescription = "Google AI Studio"
                                 )
                                 Column {
                                     Text(
