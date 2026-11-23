@@ -660,9 +660,9 @@ class JulieFloatingBubbleService : Service() {
     }
 
     companion object {
-        private const val ACTION_START = "com.example.overlay.START_BUBBLE"
-        private const val ACTION_STOP = "com.example.overlay.STOP_BUBBLE"
-        private const val ACTION_SHOW_POINTER = "com.example.overlay.SHOW_POINTER"
+        const val ACTION_START = "com.example.overlay.START_BUBBLE"
+        const val ACTION_STOP = "com.example.overlay.STOP_BUBBLE"
+        const val ACTION_SHOW_POINTER = "com.example.overlay.SHOW_POINTER"
         private const val EXTRA_POINTER_X = "pointer_x"
         private const val EXTRA_POINTER_Y = "pointer_y"
         private const val EXTRA_POINTER_LABEL = "pointer_label"
