@@ -614,45 +614,48 @@ fun ChatScreen(
                 }
 
                 // Jump to latest message button (visible only when scrolled up)
-                AnimatedVisibility(
-                    visible = !isNearBottom && (messages.isNotEmpty() || liveSwarm.isRunning),
-                    enter = fadeIn(),
-                    exit = fadeOut(),
+                Box(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .padding(bottom = 12.dp, end = 8.dp)
                 ) {
-                    Surface(
-                        onClick = {
-                            coroutineScope.launch {
-                                val target = messages.size + (if (liveSwarm.isRunning) 1 else 0)
-                                if (target > 0) {
-                                    listState.animateScrollToItem(target - 1)
-                                }
-                            }
-                        },
-                        shape = RoundedCornerShape(20.dp),
-                        color = ObsidianSurfaceElevated.copy(alpha = 0.95f),
-                        border = BorderStroke(1.dp, AuraCyan.copy(alpha = 0.65f)),
-                        shadowElevation = 8.dp
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = !isNearBottom && (messages.isNotEmpty() || liveSwarm.isRunning),
+                        enter = fadeIn(),
+                        exit = fadeOut()
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                        Surface(
+                            onClick = {
+                                coroutineScope.launch {
+                                    val target = messages.size + (if (liveSwarm.isRunning) 1 else 0)
+                                    if (target > 0) {
+                                        listState.animateScrollToItem(target - 1)
+                                    }
+                                }
+                            },
+                            shape = RoundedCornerShape(20.dp),
+                            color = ObsidianSurfaceElevated.copy(alpha = 0.95f),
+                            border = BorderStroke(1.dp, AuraCyan.copy(alpha = 0.65f)),
+                            shadowElevation = 8.dp
                         ) {
-                            Icon(
-                                imageVector = Icons.Rounded.ArrowDownward,
-                                contentDescription = "Jump to latest",
-                                tint = AuraCyan,
-                                modifier = Modifier.size(15.dp)
-                            )
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                text = "Jump to latest",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = PearlWhite,
-                                fontWeight = FontWeight.SemiBold
-                            )
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.ArrowDownward,
+                                    contentDescription = "Jump to latest",
+                                    tint = AuraCyan,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    text = "Jump to latest",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = PearlWhite,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
                         }
                     }
                 }
