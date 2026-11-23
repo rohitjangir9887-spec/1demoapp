@@ -1,7 +1,7 @@
 # Latest Android build diagnostics
 
-Run: https://github.com/rohitjangir9887-spec/1demoapp/actions/runs/45164576329
-Source commit: e55d086bece1acb4c713cda52da2bc5d99d275aa
+Run: https://github.com/rohitjangir9887-spec/1demoapp/actions/runs/45168684830
+Source commit: ab5c505f83ec929f83496297ff27e7e7277a0105
 
 | Step | Outcome |
 | --- | --- |
@@ -11,4 +11,52 @@ Source commit: e55d086bece1acb4c713cda52da2bc5d99d275aa
 | Gradle setup | success |
 | Firebase CI config | success |
 | Debug keystore | success |
-| Android compile | success |
+| Android compile | failure |
+
+## Compiler and build errors
+~~~
+e: file:///home/runner/work/1demoapp/1demoapp/app/src/main/java/com/example/screen/ScreenCaptureService.kt:189:73 Cannot access 'val ACTION_START: String': it is private in 'com.example.overlay.JulieFloatingBubbleService
+e: file:///home/runner/work/1demoapp/1demoapp/app/src/main/java/com/example/voice/JulieBackgroundVoiceService.kt:125:110 Cannot access 'val ACTION_START: String': it is private in 'com.example.overlay.JulieFloatingBubble
+FAILURE: Build failed with an exception.
+* What went wrong:
+Caused by: org.gradle.workers.internal.DefaultWorkerExecutor$WorkExecutionException: A failure occurred while executing org.jetbrains.kotlin.compilerRunner.btapi.BuildToolsApiCompilationWork
+Caused by: org.jetbrains.kotlin.gradle.tasks.CompilationErrorException: Cannot access 'val ACTION_START: String': it is private in 'com.example.overlay.JulieFloatingBubbleService.Companion'.
+~~~
+
+## Failed unit tests
+~~~
+~~~
+
+## Tail of build log
+~~~
+	at org.gradle.workers.internal.AbstractWorker$1.call(AbstractWorker.java:44)
+	at org.gradle.workers.internal.AbstractWorker$1.call(AbstractWorker.java:41)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:209)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:204)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:66)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:59)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:166)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:59)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.call(DefaultBuildOperationRunner.java:53)
+	at org.gradle.workers.internal.AbstractWorker.executeWrappedInBuildOperation(AbstractWorker.java:41)
+	at org.gradle.workers.internal.NoIsolationWorkerFactory$1.execute(NoIsolationWorkerFactory.java:58)
+	at org.gradle.workers.internal.DefaultWorkerExecutor.lambda$submitWork$0(DefaultWorkerExecutor.java:176)
+	at org.gradle.internal.work.DefaultConditionalExecutionQueue$ExecutionRunner.runExecution(DefaultConditionalExecutionQueue.java:194)
+	at org.gradle.internal.work.DefaultConditionalExecutionQueue$ExecutionRunner.access$700(DefaultConditionalExecutionQueue.java:127)
+	at org.gradle.internal.work.DefaultConditionalExecutionQueue$ExecutionRunner$1.run(DefaultConditionalExecutionQueue.java:169)
+	at org.gradle.internal.Factories$1.create(Factories.java:30)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.lambda$withLocksAcquired$0(DefaultWorkerLeaseService.java:269)
+	at org.gradle.internal.work.ResourceLockStatistics$1.measure(ResourceLockStatistics.java:42)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.withLocksAcquired(DefaultWorkerLeaseService.java:267)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.withLocks(DefaultWorkerLeaseService.java:259)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.runAsWorkerThread(DefaultWorkerLeaseService.java:127)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.runAsWorkerThread(DefaultWorkerLeaseService.java:132)
+	at org.gradle.internal.work.DefaultConditionalExecutionQueue$ExecutionRunner.runBatch(DefaultConditionalExecutionQueue.java:164)
+	at org.gradle.internal.work.DefaultConditionalExecutionQueue$ExecutionRunner.run(DefaultConditionalExecutionQueue.java:133)
+	... 2 more
+
+
+BUILD FAILED in 33s
+36 actionable tasks: 20 executed, 16 from cache
+Configuration cache entry stored.
+~~~
