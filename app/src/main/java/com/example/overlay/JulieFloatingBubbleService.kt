@@ -33,6 +33,7 @@ import com.example.data.ai.AuraSwarmEngine
 import com.example.data.ai.OrchestrationMode
 import com.example.data.ai.RoutingConfig
 import com.example.data.ai.RoutingProfile
+import com.example.data.remote.NvidiaNimClient
 import com.example.screen.ScreenCaptureService
 import com.example.screen.ScreenCaptureStore
 import com.example.tools.JulieToolRegistry
@@ -79,6 +80,8 @@ class JulieFloatingBubbleService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        // Services may be recreated without MainActivity; restore the encrypted key here too.
+        NvidiaNimClient.initialize(applicationContext)
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
     }
 
